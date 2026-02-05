@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | v31</title>
+    <title>SoundTherapy Pro | v31 Stable</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
-            font-family: 'Inter', sans-serif; display: flex; 
+            font-family: sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; transition: background 0.4s ease;
         }
         #status-display { font-size: 1.2rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-transform: uppercase; letter-spacing: 2px; }
-        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4); transition: 0.3s; }
+        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4); }
         canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 40px; border: 1px solid #334155; }
         .metrics { margin-top: 30px; display: flex; gap: 40px; }
         .metric-box { display: flex; flex-direction: column; text-align: center; }
@@ -23,12 +23,12 @@
 <body>
 
     <div id="status-display">System Ready</div>
-    <button class="start-btn" id="startBtn">START SYSTEM (TH:31)</button>
+    <button class="start-btn" id="startBtn">START v31-RECOVERY</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
         <div class="metric-box">
-            <span style="font-size: 0.7rem; color: #94a3b8;">INPUT LEVEL</span>
+            <span style="font-size: 0.7rem; color: #94a3b8;">INPUT</span>
             <span class="value" id="currentLevel">0</span>
         </div>
         <div class="metric-box">
@@ -50,62 +50,76 @@
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        const THRESHOLD = 31; // Updated to 31
+        const THRESHOLD = 31; // As requested
 
-        startBtn.onclick = async () => {
+        startBtn.onclick = function() {
+            // Using older function style for maximum compatibility
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioCtx.createMediaStreamSource(stream);
                 
-                analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 256;
-                source.connect(analyser);
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+                    const source = audioCtx.createMediaStreamSource(stream);
+                    analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 256;
+                    source.connect(analyser);
+                    dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // Start background music immediately
-                bgMusic.volume = 0.7;
-                await bgMusic.play();
+                    // Music plays immediately
+                    bgMusic.volume = 0.7;
+                    bgMusic.play();
 
-                // Masking noise remains PAUSED initially
-                maskSound.volume = 0;
+                    // Noise logic: Do not play until needed
+                    maskSound.volume = 0;
 
-                startBtn.style.display = 'none';
-                statusDisplay.innerText = "Monitoring Environment";
-                update();
+                    startBtn.style.display = 'none';
+                    statusDisplay.innerText = "Monitoring...";
+                    update();
+                }).catch(function(err) {
+                    alert("Mic Error: " + err.name);
+                });
             } catch (err) {
-                alert("Error: Microphone access is required.");
+                alert("Init Error: " + err.message);
             }
         };
 
         function update() {
             requestAnimationFrame(update);
-            analyser.getByteFrequencyData(dataArray);
+            if (!analyser) return;
 
+            analyser.getByteFrequencyData(dataArray);
             let sum = 0;
             for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
             let average = sum / dataArray.length;
             currentLevelDisp.innerText = Math.round(average);
 
             if (average > THRESHOLD) {
-                statusDisplay.innerText = "🚨 Noise Detected";
+                statusDisplay.innerText = "🚨 NOISE DETECTED";
                 document.body.classList.add('alert-mode');
                 
-                // Play noise only when threshold is crossed
+                // Only play when loud
                 if (maskSound.paused) {
                     maskSound.volume = 1.0;
-                    maskSound.play().catch(e => console.log("Audio play blocked"));
+                    maskSound.play();
                 }
             } else {
-                statusDisplay.innerText = "Monitoring Environment";
+                statusDisplay.innerText = "MONITORING";
                 document.body.classList.remove('alert-mode');
                 
-                // Pause and reset noise when quiet
+                // Stop when quiet
                 if (!maskSound.paused) {
                     maskSound.pause();
-                    maskSound.currentTime = 0; 
                 }
             }
 
-            // Visualizer Rendering
-            canvasCtx.fillStyle = 'rgba(30, 41, 59,
+            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / dataArray.length) * 2;
+            for(let i = 0; i < dataArray.length; i++) {
+                const barHeight = dataArray[i] / 2;
+                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
+                canvasCtx.fillRect(i * (barWidth + 1), canvas.height - barHeight, barWidth, barHeight);
+            }
+        }
+    </script>
+</body>
+</html>
