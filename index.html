@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | Precision v33</title>
+    <title>SoundTherapy Pro | Hi-Fi Mode</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -11,29 +11,29 @@
             flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; overflow: hidden;
         }
-        #status-display { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-align: center; height: 3rem; }
+        #status-display { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-align: center; height: 3.5rem; line-height: 1.4; }
         .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; }
-        canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 20px; border: 1px solid #334155; }
-        .metrics { margin-top: 30px; display: flex; gap: 20px; }
-        .metric-box { display: flex; flex-direction: column; text-align: center; min-width: 100px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 15px; }
+        canvas { width: 90%; height: 160px; background: rgba(0,0,0,0.3); border-radius: 24px; margin-top: 20px; border: 1px solid #334155; }
+        .metrics { margin-top: 30px; display: flex; gap: 15px; width: 90%; }
+        .metric-box { flex: 1; display: flex; flex-direction: column; text-align: center; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 15px; }
         .label { font-size: 0.65rem; color: #94a3b8; margin-bottom: 5px; }
-        .value { font-size: 1.5rem; font-weight: 700; }
-        .alert-active { background: #450a0a !important; }
+        .value { font-size: 1.5rem; font-weight: 800; }
+        .alert-red { background: #450a0a !important; border: 1px solid #ef4444; }
     </style>
 </head>
 <body>
 
-    <div id="status-display">Ready for Clinical Test</div>
-    <button class="start-btn" id="startBtn">START SYSTEM</button>
+    <div id="status-display">Hi-Fi Audio Mode<br><span style="font-size: 0.8rem; font-weight: 400; color: #64748b;">(Mic: Phone | Speaker: Glasses)</span></div>
+    <button class="start-btn" id="startBtn">START HI-FI SYSTEM</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
         <div class="metric-box">
-            <span class="label">AVG LEVEL</span>
+            <span class="label">LEVEL (Suction)</span>
             <span class="value" id="volLevel">0</span>
         </div>
         <div class="metric-box">
-            <span class="label">DRILL SENSITIVITY</span>
+            <span class="label">DRILL SENSE</span>
             <span class="value" id="drillLevel" style="color: #ef4444;">0</span>
         </div>
     </div>
@@ -53,18 +53,36 @@
 
         let audioCtx, analyser, dataArray;
         
-        // --- 아버님의 측정값(50~60)에 맞춘 정밀 세팅 ---
-        const AMBIENT_LEVEL = 53;  // 53이 넘으면 석션/소음으로 간주 (음악 업)
-        const DRILL_SENSE = 58;    // 58이 넘으면 드릴로 간주 (노이즈 업)
+        // --- 아버님 측정값 기반 1차 세팅 (낮은 수치 대비) ---
+        const SUCTION_THRESHOLD = 15; // 석션이 10~20 사이라면 15로 시작
+        const DRILL_THRESHOLD = 18;   // 드릴이 20 근처라면 18로 시작
 
         startBtn.onclick = function() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+                
+                // CRITICAL: Prevent Bluetooth HFP mode by disabling processing
+                const constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                };
+
+                navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
                     const source = audioCtx.createMediaStreamSource(stream);
+                    
+                    // Add Software Gain (Boost incoming low signal by 2x)
+                    const gainNode = audioCtx.createGain();
+                    gainNode.gain.value = 2.0; 
+                    
                     analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 512;
-                    source.connect(analyser);
+                    analyser.fftSize = 256;
+                    
+                    source.connect(gainNode);
+                    gainNode.connect(analyser);
+                    
                     dataArray = new Uint8Array(analyser.frequencyBinCount);
 
                     bgMusic.volume = 0.4; 
@@ -73,8 +91,8 @@
 
                     startBtn.style.display = 'none';
                     update();
-                });
-            } catch (e) { alert("Error: " + e.message); }
+                }).catch(function(err) { alert("Mic Error: " + err.name); });
+            } catch (e) { alert("Init Error: " + e.message); }
         };
 
         function update() {
@@ -83,54 +101,42 @@
 
             analyser.getByteFrequencyData(dataArray);
 
-            // 1. 전체 평균 (석션용)
             let totalSum = 0;
             for(let i = 0; i < dataArray.length; i++) { totalSum += dataArray[i]; }
             let overallAvg = totalSum / dataArray.length;
             volLevelDisp.innerText = Math.round(overallAvg);
 
-            // 2. 고주파 분석 (드릴용: 3kHz~8kHz 대역 집중 분석)
+            // High frequency for Drill (last 30% of bars)
             let drillSum = 0;
             let drillCount = 0;
-            for(let i = 80; i < 150; i++) { 
-                drillSum += dataArray[i];
-                drillCount++;
-            }
+            for(let i = 80; i < 120; i++) { drillSum += dataArray[i]; drillCount++; }
             let drillAvg = drillSum / drillCount;
             drillLevelDisp.innerText = Math.round(drillAvg);
 
-            // 로직 1: 음악 볼륨 (석션/전체소음 대응)
-            if (overallAvg > AMBIENT_LEVEL) {
+            // Control Logic
+            if (drillAvg > DRILL_THRESHOLD) {
+                statusDisplay.innerHTML = "🚨 DRILL DETECTED<br>Noise Active";
+                document.body.classList.add('alert-red');
                 bgMusic.volume = 0.9;
-                statusDisplay.innerText = "SUCTION DETECTED\nMusic Volume Up";
+                if (maskSound.paused) { maskSound.volume = 1.0; maskSound.play(); }
+            } else if (overallAvg > SUCTION_THRESHOLD) {
+                statusDisplay.innerHTML = "SUCTION ACTIVE<br>Music Up";
+                document.body.classList.remove('alert-red');
+                bgMusic.volume = 0.8;
+                if (!maskSound.paused) { maskSound.pause(); }
             } else {
+                statusDisplay.innerHTML = "MONITORING<br><span style='font-size:0.7rem; color:#64748b;'>Hi-Fi Environment</span>";
+                document.body.classList.remove('alert-red');
                 bgMusic.volume = 0.4;
-                statusDisplay.innerText = "Normal Environment";
+                if (!maskSound.paused) { maskSound.pause(); }
             }
 
-            // 로직 2: 노이즈 재생 (드릴 대응)
-            if (drillAvg > DRILL_SENSE) {
-                statusDisplay.innerHTML = "<span style='color:#ef4444'>🚨 DRILL DETECTED</span><br>Masking Active";
-                document.body.classList.add('alert-active');
-                if (maskSound.paused) {
-                    maskSound.volume = 1.0;
-                    maskSound.play();
-                }
-            } else {
-                document.body.classList.remove('alert-active');
-                if (!maskSound.paused) {
-                    maskSound.pause();
-                }
-            }
-
-            // 시각화
-            canvasCtx.fillStyle = 'rgba(30, 41, 59, 1)';
+            canvasCtx.fillStyle = '#0f172a';
             canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
             const barWidth = (canvas.width / dataArray.length) * 2;
             for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] * 0.6;
-                // 드릴 감지 영역은 빨간색으로 표시
-                canvasCtx.fillStyle = (i >= 80 && i <= 150) ? '#ef4444' : '#38bdf8';
+                const barHeight = dataArray[i];
+                canvasCtx.fillStyle = (i > 80) ? '#ef4444' : '#38bdf8';
                 canvasCtx.fillRect(i * (barWidth + 1), canvas.height - barHeight, barWidth, barHeight);
             }
         }
