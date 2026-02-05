@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | Testing Mode</title>
+    <title>SoundTherapy Pro | Mobile Optimized</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
-            font-family: 'Inter', sans-serif; display: flex; 
+            font-family: sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; transition: background 0.4s ease;
         }
         #status-display { font-size: 1.2rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-transform: uppercase; letter-spacing: 2px; }
-        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4); transition: 0.3s; }
+        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4); }
         canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 40px; border: 1px solid #334155; }
         .metrics { margin-top: 30px; display: flex; gap: 40px; }
         .metric-box { display: flex; flex-direction: column; text-align: center; }
@@ -25,7 +25,7 @@
 <body>
 
     <div id="status-display">System Standby</div>
-    <button class="start-btn" id="startBtn">START TEST (TH:30)</button>
+    <button class="start-btn" id="startBtn">START MOBILE ENGINE</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
@@ -35,7 +35,7 @@
         </div>
         <div class="metric-box">
             <span class="label">Threshold</span>
-            <span class="value" style="color: #fbbf24;">30</span>
+            <span class="value" style="color: #fbbf24;">35</span>
         </div>
     </div>
 
@@ -52,32 +52,41 @@
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        // 문턱치를 30으로 낮췄습니다.
-        const THRESHOLD = 30; 
+        const THRESHOLD = 35; 
 
         startBtn.onclick = async () => {
             try {
+                // Initialize AudioContext
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioCtx.createMediaStreamSource(stream);
                 
+                // MOBILE FIX: Disable auto-processing that lowers music volume
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 256;
-                analyser.smoothingTimeConstant = 0.8;
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                bgMusic.volume = 0.7;
-                maskSound.volume = 0;
+                // Initial Volume Setup
+                bgMusic.volume = 0.8;
+                maskSound.volume = 0; // Force silence at start
                 
+                // Play sounds
                 await bgMusic.play();
                 await maskSound.play();
 
                 startBtn.style.display = 'none';
-                statusDisplay.innerText = "Monitoring (Sensitive Mode)";
+                statusDisplay.innerText = "Monitoring Environment";
                 update();
             } catch (err) {
-                alert("Clinical Error: Check Mic access or mp3 files.");
+                alert("Clinical Error: Could not initialize audio engine.");
             }
         };
 
@@ -92,27 +101,4 @@
 
             if (average > THRESHOLD) {
                 statusDisplay.innerText = "🚨 Noise Detected";
-                statusDisplay.className = "alert-text";
-                document.body.classList.add('alert-mode');
-                maskSound.volume = 1.0; 
-            } else {
-                statusDisplay.innerText = "Monitoring (Sensitive Mode)";
-                statusDisplay.className = "";
-                document.body.classList.remove('alert-mode');
-                maskSound.volume = 0;
-            }
-
-            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let x = 0;
-            for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-        }
-    </script>
-</body>
-</html>
+                statusDisplay.className
