@@ -3,114 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy | Real-time Mixing</title>
+    <title>SoundTherapy Pro | Clinical Edition</title>
     <style>
-        body { margin: 0; background: #0f172a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        #status { font-size: 1.2rem; margin-bottom: 20px; color: #38bdf8; font-weight: bold; }
-        .main-btn { padding: 25px 50px; font-size: 1.5rem; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; transition: 0.3s; }
-        canvas { width: 90%; height: 150px; background: #1e293b; border-radius: 20px; margin-top: 30px; }
-        .mixer-info { margin-top: 20px; font-size: 0.9rem; color: #94a3b8; text-align: center; }
-        .alert { color: #ef4444 !important; }
+        body { 
+            margin: 0; 
+            background: #0f172a; 
+            color: #f8fafc; 
+            font-family: 'Inter', system-ui, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            overflow: hidden;
+            transition: background 0.4s ease;
+        }
+        #status-display { 
+            font-size: 1.2rem; 
+            font-weight: 700; 
+            margin-bottom: 20px; 
+            color: #38bdf8; 
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .start-btn { 
+            padding: 24px 60px; 
+            font-size: 1.4rem; 
+            font-weight: 800; 
+            border: none; 
+            border-radius: 100px; 
+            cursor: pointer; 
+            background: #3b82f6; 
+            color: white; 
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4);
+            transition: 0.3s;
+        }
+        .start-btn:hover { transform: translateY(-2px); background: #2563eb; }
+        
+        canvas { 
+            width: 90%; 
+            height: 160px; 
+            background: rgba(30, 41, 59, 0.5); 
+            border-radius: 24px; 
+            margin-top: 40px; 
+            border: 1px solid #334155; 
+        }
+
+        .metrics { 
+            margin-top: 30px; 
+            display: flex; 
+            gap: 40px; 
+            text-align: center;
+        }
+        .metric-box { display: flex; flex-direction: column; }
+        .label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 5px; }
+        .value { font-size: 1.5rem; font-weight: 700; }
+        
+        .alert-mode { background: #450a0a !important; }
+        .alert-text { color: #ef4444 !important; }
     </style>
 </head>
 <body>
 
-    <div id="status">READY TO HEAL</div>
-    <button class="main-btn" id="startBtn">START THERAPY</button>
+    <div id="status-display">System Standby</div>
     
+    <button class="start-btn" id="startBtn">INITIALIZE THERAPY</button>
+
     <canvas id="visualizer"></canvas>
 
-    <div class="mixer-info">
-        Background: <span id="bgStatus">OFF</span> | 
-        Masking: <span id="maskStatus">OFF</span>
+    <div class="metrics">
+        <div class="metric-box">
+            <span class="label">Input Level</span>
+            <span class="value" id="currentLevel">0</span>
+        </div>
+        <div class="metric-box">
+            <span class="label">Threshold</span>
+            <span class="value" style="color: #fbbf24;">75</span>
+        </div>
     </div>
 
     <script>
         const startBtn = document.getElementById('startBtn');
-        const statusText = document.getElementById('status');
-        const bgStatus = document.getElementById('bgStatus');
-        const maskStatus = document.getElementById('maskStatus');
+        const statusDisplay = document.getElementById('status-display');
+        const currentLevelDisp = document.getElementById('currentLevel');
         const canvas = document.getElementById('visualizer');
         const canvasCtx = canvas.getContext('2d');
 
-        // Audio Objects
+        // Audio Assets
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
-
-        // Audio Context & Analyser
-        let audioCtx, analyser, dataArray;
-
-        // Loop Settings
         bgMusic.loop = true;
         maskSound.loop = true;
 
+        let audioCtx, analyser, dataArray;
+        const THRESHOLD = 75; // Adjust this value based on your environment
+
         startBtn.onclick = async () => {
             try {
+                // Initialize Web Audio API
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Mic Permission
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const source = audioCtx.createMediaStreamSource(stream);
                 
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = 0.8;
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // Play Background Music (Zero Latency)
+                // Setup Initial Volumes
+                bgMusic.volume = 0.7; // Relaxing background music
+                maskSound.volume = 0;   // Masking starts SILENT
+                
                 await bgMusic.play();
-                bgStatus.innerText = "PLAYING";
-                bgStatus.style.color = "#4cd964";
-
-                // Prepare Masking Sound (Start muted)
                 await maskSound.play();
-                maskSound.volume = 0;
-                maskStatus.innerText = "STANDBY";
 
                 startBtn.style.display = 'none';
-                statusText.innerText = "MONITORING AMBIENT NOISE";
-                renderLoop();
-
+                statusDisplay.innerText = "Monitoring Environment";
+                update();
             } catch (err) {
-                alert("Please check microphone access and mp3 files.");
+                alert("Clinical Error: Microphone access denied or audio files not found.");
                 console.error(err);
             }
         };
 
-        function renderLoop() {
-            requestAnimationFrame(renderLoop);
+        function update() {
+            requestAnimationFrame(update);
             analyser.getByteFrequencyData(dataArray);
 
-            // Analysis: Simple Volume Threshold
+            // Calculate Sound Intensity
             let sum = 0;
             for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
             let average = sum / dataArray.length;
+            currentLevelDisp.innerText = Math.round(average);
 
-            // Visualizer logic
-            canvasCtx.fillStyle = '#1e293b';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = `hsl(${200 + barHeight}, 70%, 50%)`;
-                canvasCtx.fillRect(i * 3, canvas.height - barHeight, 2, barHeight);
+            // Logic: High Noise Detection
+            if (average > THRESHOLD) {
+                statusDisplay.innerText = "🚨 High Noise Detected";
+                statusDisplay.className = "alert-text";
+                document.body.classList.add('alert-mode');
+                
+                // Activate Masking Sound
+                maskSound.volume = 1.0; 
+            } else {
+                statusDisplay.innerText = "Monitoring Environment";
+                statusDisplay.className = "";
+                document.body.classList.remove('alert-mode');
+                
+                // Deactivate Masking Sound
+                maskSound.volume = 0;
             }
 
-            // Real-time Mixing Logic
-            // If noise average is over 40 (adjustable threshold)
-            if (average > 40) {
-                statusText.innerText = "NOISE DETECTED: ACTIVATING SHIELD";
-                statusText.className = "alert";
-                maskSound.volume = 1.0; // Instantly play noise.mp3
-                maskStatus.innerText = "SHIELDING";
-                maskStatus.style.color = "#ef4444";
-                document.body.style.background = "#2b0b1a";
-            } else {
-                statusText.innerText = "MONITORING AMBIENT NOISE";
-                statusText.className = "";
-                maskSound.volume = 0; // Silent
-                maskStatus.innerText = "STANDBY";
-                maskStatus.style.color = "#94a3b8";
-                document.body.style.background = "#0f172a";
+            // Visualizer Rendering
+            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const barWidth = (canvas.width / dataArray.length) * 2.5;
+            let x = 0;
+            for(let i = 0; i < dataArray.length; i++) {
+                const barHeight = dataArray[i] / 2;
+                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
             }
         }
     </script>
