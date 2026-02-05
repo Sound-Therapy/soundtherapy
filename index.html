@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | Testing Mode</title>
+    <title>SoundTherapy Pro | v31</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -25,7 +25,7 @@
 <body>
 
     <div id="status-display">System Standby</div>
-    <button class="start-btn" id="startBtn">START TEST (TH:30)</button>
+    <button class="start-btn" id="startBtn">START THERAPY (v31)</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
@@ -35,84 +35,4 @@
         </div>
         <div class="metric-box">
             <span class="label">Threshold</span>
-            <span class="value" style="color: #fbbf24;">30</span>
-        </div>
-    </div>
-
-    <script>
-        const startBtn = document.getElementById('startBtn');
-        const statusDisplay = document.getElementById('status-display');
-        const currentLevelDisp = document.getElementById('currentLevel');
-        const canvas = document.getElementById('visualizer');
-        const canvasCtx = canvas.getContext('2d');
-
-        const bgMusic = new Audio('music.mp3');
-        const maskSound = new Audio('noise.mp3');
-        bgMusic.loop = true;
-        maskSound.loop = true;
-
-        let audioCtx, analyser, dataArray;
-        // 문턱치를 30으로 낮췄습니다.
-        const THRESHOLD = 30; 
-
-        startBtn.onclick = async () => {
-            try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioCtx.createMediaStreamSource(stream);
-                
-                analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 256;
-                analyser.smoothingTimeConstant = 0.8;
-                source.connect(analyser);
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-                bgMusic.volume = 0.7;
-                maskSound.volume = 0;
-                
-                await bgMusic.play();
-                await maskSound.play();
-
-                startBtn.style.display = 'none';
-                statusDisplay.innerText = "Monitoring (Sensitive Mode)";
-                update();
-            } catch (err) {
-                alert("Clinical Error: Check Mic access or mp3 files.");
-            }
-        };
-
-        function update() {
-            requestAnimationFrame(update);
-            analyser.getByteFrequencyData(dataArray);
-
-            let sum = 0;
-            for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
-            let average = sum / dataArray.length;
-            currentLevelDisp.innerText = Math.round(average);
-
-            if (average > THRESHOLD) {
-                statusDisplay.innerText = "🚨 Noise Detected";
-                statusDisplay.className = "alert-text";
-                document.body.classList.add('alert-mode');
-                maskSound.volume = 1.0; 
-            } else {
-                statusDisplay.innerText = "Monitoring (Sensitive Mode)";
-                statusDisplay.className = "";
-                document.body.classList.remove('alert-mode');
-                maskSound.volume = 0;
-            }
-
-            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let x = 0;
-            for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-        }
-    </script>
-</body>
-</html>
+            <span class="value"
