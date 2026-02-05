@@ -3,44 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | v31 Stable</title>
+    <title>SoundTherapy Pro | Precision v33</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
             font-family: sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.4s ease;
+            height: 100vh; overflow: hidden;
         }
-        #status-display { font-size: 1.2rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-transform: uppercase; letter-spacing: 2px; }
-        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4); }
-        canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 40px; border: 1px solid #334155; }
-        .metrics { margin-top: 30px; display: flex; gap: 40px; }
-        .metric-box { display: flex; flex-direction: column; text-align: center; }
+        #status-display { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-align: center; height: 3rem; }
+        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; }
+        canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 20px; border: 1px solid #334155; }
+        .metrics { margin-top: 30px; display: flex; gap: 20px; }
+        .metric-box { display: flex; flex-direction: column; text-align: center; min-width: 100px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 15px; }
+        .label { font-size: 0.65rem; color: #94a3b8; margin-bottom: 5px; }
         .value { font-size: 1.5rem; font-weight: 700; }
-        .alert-mode { background: #450a0a !important; }
+        .alert-active { background: #450a0a !important; }
     </style>
 </head>
 <body>
 
-    <div id="status-display">System Ready</div>
-    <button class="start-btn" id="startBtn">START v31-RECOVERY</button>
+    <div id="status-display">Ready for Clinical Test</div>
+    <button class="start-btn" id="startBtn">START SYSTEM</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
         <div class="metric-box">
-            <span style="font-size: 0.7rem; color: #94a3b8;">INPUT</span>
-            <span class="value" id="currentLevel">0</span>
+            <span class="label">AVG LEVEL</span>
+            <span class="value" id="volLevel">0</span>
         </div>
         <div class="metric-box">
-            <span style="font-size: 0.7rem; color: #fbbf24;">THRESHOLD</span>
-            <span class="value" style="color: #fbbf24;">31</span>
+            <span class="label">DRILL SENSITIVITY</span>
+            <span class="value" id="drillLevel" style="color: #ef4444;">0</span>
         </div>
     </div>
 
     <script>
         const startBtn = document.getElementById('startBtn');
         const statusDisplay = document.getElementById('status-display');
-        const currentLevelDisp = document.getElementById('currentLevel');
+        const volLevelDisp = document.getElementById('volLevel');
+        const drillLevelDisp = document.getElementById('drillLevel');
         const canvas = document.getElementById('visualizer');
         const canvasCtx = canvas.getContext('2d');
 
@@ -50,36 +52,29 @@
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        const THRESHOLD = 31; // As requested
+        
+        // --- 아버님의 측정값(50~60)에 맞춘 정밀 세팅 ---
+        const AMBIENT_LEVEL = 53;  // 53이 넘으면 석션/소음으로 간주 (음악 업)
+        const DRILL_SENSE = 58;    // 58이 넘으면 드릴로 간주 (노이즈 업)
 
         startBtn.onclick = function() {
-            // Using older function style for maximum compatibility
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                
                 navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
                     const source = audioCtx.createMediaStreamSource(stream);
                     analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 256;
+                    analyser.fftSize = 512;
                     source.connect(analyser);
                     dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                    // Music plays immediately
-                    bgMusic.volume = 0.7;
+                    bgMusic.volume = 0.4; 
                     bgMusic.play();
-
-                    // Noise logic: Do not play until needed
                     maskSound.volume = 0;
 
                     startBtn.style.display = 'none';
-                    statusDisplay.innerText = "Monitoring...";
                     update();
-                }).catch(function(err) {
-                    alert("Mic Error: " + err.name);
                 });
-            } catch (err) {
-                alert("Init Error: " + err.message);
-            }
+            } catch (e) { alert("Error: " + e.message); }
         };
 
         function update() {
@@ -87,36 +82,55 @@
             if (!analyser) return;
 
             analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
-            let average = sum / dataArray.length;
-            currentLevelDisp.innerText = Math.round(average);
 
-            if (average > THRESHOLD) {
-                statusDisplay.innerText = "🚨 NOISE DETECTED";
-                document.body.classList.add('alert-mode');
-                
-                // Only play when loud
+            // 1. 전체 평균 (석션용)
+            let totalSum = 0;
+            for(let i = 0; i < dataArray.length; i++) { totalSum += dataArray[i]; }
+            let overallAvg = totalSum / dataArray.length;
+            volLevelDisp.innerText = Math.round(overallAvg);
+
+            // 2. 고주파 분석 (드릴용: 3kHz~8kHz 대역 집중 분석)
+            let drillSum = 0;
+            let drillCount = 0;
+            for(let i = 80; i < 150; i++) { 
+                drillSum += dataArray[i];
+                drillCount++;
+            }
+            let drillAvg = drillSum / drillCount;
+            drillLevelDisp.innerText = Math.round(drillAvg);
+
+            // 로직 1: 음악 볼륨 (석션/전체소음 대응)
+            if (overallAvg > AMBIENT_LEVEL) {
+                bgMusic.volume = 0.9;
+                statusDisplay.innerText = "SUCTION DETECTED\nMusic Volume Up";
+            } else {
+                bgMusic.volume = 0.4;
+                statusDisplay.innerText = "Normal Environment";
+            }
+
+            // 로직 2: 노이즈 재생 (드릴 대응)
+            if (drillAvg > DRILL_SENSE) {
+                statusDisplay.innerHTML = "<span style='color:#ef4444'>🚨 DRILL DETECTED</span><br>Masking Active";
+                document.body.classList.add('alert-active');
                 if (maskSound.paused) {
                     maskSound.volume = 1.0;
                     maskSound.play();
                 }
             } else {
-                statusDisplay.innerText = "MONITORING";
-                document.body.classList.remove('alert-mode');
-                
-                // Stop when quiet
+                document.body.classList.remove('alert-active');
                 if (!maskSound.paused) {
                     maskSound.pause();
                 }
             }
 
-            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
+            // 시각화
+            canvasCtx.fillStyle = 'rgba(30, 41, 59, 1)';
             canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
             const barWidth = (canvas.width / dataArray.length) * 2;
             for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
+                const barHeight = dataArray[i] * 0.6;
+                // 드릴 감지 영역은 빨간색으로 표시
+                canvasCtx.fillStyle = (i >= 80 && i <= 150) ? '#ef4444' : '#38bdf8';
                 canvasCtx.fillRect(i * (barWidth + 1), canvas.height - barHeight, barWidth, barHeight);
             }
         }
