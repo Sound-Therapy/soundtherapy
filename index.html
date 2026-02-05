@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | v30-Fixed</title>
+    <title>SoundTherapy Pro | v31</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -16,26 +16,24 @@
         canvas { width: 90%; height: 160px; background: rgba(30, 41, 59, 0.5); border-radius: 24px; margin-top: 40px; border: 1px solid #334155; }
         .metrics { margin-top: 30px; display: flex; gap: 40px; }
         .metric-box { display: flex; flex-direction: column; text-align: center; }
-        .label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 5px; }
         .value { font-size: 1.5rem; font-weight: 700; }
         .alert-mode { background: #450a0a !important; }
-        .alert-text { color: #ef4444 !important; }
     </style>
 </head>
 <body>
 
-    <div id="status-display">System Standby</div>
-    <button class="start-btn" id="startBtn">START SYSTEM (TH:30)</button>
+    <div id="status-display">System Ready</div>
+    <button class="start-btn" id="startBtn">START SYSTEM (TH:31)</button>
     <canvas id="visualizer"></canvas>
 
     <div class="metrics">
         <div class="metric-box">
-            <span class="label">Input Level</span>
+            <span style="font-size: 0.7rem; color: #94a3b8;">INPUT LEVEL</span>
             <span class="value" id="currentLevel">0</span>
         </div>
         <div class="metric-box">
-            <span class="label">Threshold</span>
-            <span class="value" style="color: #fbbf24;">30</span>
+            <span style="font-size: 0.7rem; color: #fbbf24;">THRESHOLD</span>
+            <span class="value" style="color: #fbbf24;">31</span>
         </div>
     </div>
 
@@ -52,8 +50,7 @@
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        // Threshold set to 30 as requested
-        const THRESHOLD = 30; 
+        const THRESHOLD = 31; // Updated to 31
 
         startBtn.onclick = async () => {
             try {
@@ -63,27 +60,21 @@
                 
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 256;
-                analyser.smoothingTimeConstant = 0.8;
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // Initial Volumes
+                // Start background music immediately
                 bgMusic.volume = 0.7;
-                maskSound.volume = 0; 
-                
-                // Play sequence
                 await bgMusic.play();
-                
-                // 0.1s delay to prevent audio engine glitch on mobile
-                setTimeout(async () => {
-                    await maskSound.play();
-                }, 100);
+
+                // Masking noise remains PAUSED initially
+                maskSound.volume = 0;
 
                 startBtn.style.display = 'none';
-                statusDisplay.innerText = "Monitoring (TH:30)";
+                statusDisplay.innerText = "Monitoring Environment";
                 update();
             } catch (err) {
-                alert("Error: Please check mic permissions.");
+                alert("Error: Microphone access is required.");
             }
         };
 
@@ -98,27 +89,23 @@
 
             if (average > THRESHOLD) {
                 statusDisplay.innerText = "🚨 Noise Detected";
-                statusDisplay.className = "alert-text";
                 document.body.classList.add('alert-mode');
-                maskSound.volume = 1.0; 
+                
+                // Play noise only when threshold is crossed
+                if (maskSound.paused) {
+                    maskSound.volume = 1.0;
+                    maskSound.play().catch(e => console.log("Audio play blocked"));
+                }
             } else {
-                statusDisplay.innerText = "Monitoring...";
-                statusDisplay.className = "";
+                statusDisplay.innerText = "Monitoring Environment";
                 document.body.classList.remove('alert-mode');
-                maskSound.volume = 0;
+                
+                // Pause and reset noise when quiet
+                if (!maskSound.paused) {
+                    maskSound.pause();
+                    maskSound.currentTime = 0; 
+                }
             }
 
-            canvasCtx.fillStyle = 'rgba(30, 41, 59, 0.5)';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let x = 0;
-            for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = average > THRESHOLD ? '#ef4444' : '#38bdf8';
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-        }
-    </script>
-</body>
-</html>
+            // Visualizer Rendering
+            canvasCtx.fillStyle = 'rgba(30, 41, 59,
