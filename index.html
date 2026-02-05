@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SoundTherapy Pro | Dental Noise Management</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #0f172a; 
+            color: #f8fafc; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            transition: background 0.3s ease;
+        }
+        #status { font-size: 1.1rem; margin-bottom: 25px; color: #38bdf8; letter-spacing: 1px; }
+        .main-btn { 
+            padding: 20px 60px; 
+            font-size: 1.2rem; 
+            font-weight: 600; 
+            border: none; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            background: #3b82f6; 
+            color: white; 
+            box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5); 
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .main-btn:active { transform: scale(0.95); background: #2563eb; }
+        canvas { 
+            width: 85%; 
+            height: 180px; 
+            background: #1e293b; 
+            border-radius: 16px; 
+            margin-top: 40px; 
+            border: 1px solid #334155; 
+        }
+        .log-container { margin-top: 30px; text-align: center; }
+        .log-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; }
+        .log-value { font-size: 2rem; font-weight: bold; color: #f1f5f9; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="status">SYSTEM STANDBY</div>
+    <button class="main-btn" id="startBtn">INITIALIZE ENGINE</button>
+    
+    <canvas id="visualizer"></canvas>
+    
+    <div class="log-container">
+        <div class="log-label">Input Intensity</div>
+        <div class="log-value" id="intensityValue">0</div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const statusText = document.getElementById('status');
+        const intensityDisplay = document.getElementById('intensityValue');
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+
+        let audioCtx, analyser, dataArray;
+
+        startBtn.onclick = async () => {
+            try {
+                // AudioContext Initialization for iOS/Android/PC
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Request Microphone Access
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioCtx.createMediaStreamSource(stream);
+                
+                // Analyser Setup
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256; 
+                source.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                // UI Transition
+                startBtn.style.display = 'none';
+                statusText.innerText = "ACTIVE MONITORING";
+                statusText.style.color = "#fbbf24"; // Amber color for active
+                renderFrame();
+                
+            } catch (err) {
+                alert("Please enable microphone access to use SoundTherapy.");
+                console.error("Initialization Error:", err);
+            }
+        };
+
+        function renderFrame() {
+            requestAnimationFrame(renderFrame);
+            analyser.getByteFrequencyData(dataArray);
+
+            // Calculate RMS-like intensity
+            let sum = 0;
+            for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
+            let average = sum / dataArray.length;
+            
+            intensityDisplay.innerText = Math.round(average);
+
+            // Dynamic Background based on Intensity
+            if (average > 60) {
+                document.body.style.background = "#450a0a"; // Dark red alert
+                statusText.innerText = "HIGH NOISE DETECTED";
+                statusText.style.color = "#ef4444";
+            } else {
+                document.body.style.background = "#0f172a"; // Deep blue normal
+                statusText.innerText = "ACTIVE MONITORING";
+                statusText.style.color = "#fbbf24";
+            }
+
+            // Visualizer Rendering
+            canvasCtx.fillStyle = '#1e293b';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const barWidth = (canvas.width / dataArray.length) * 2;
+            let x = 0;
+
+            for(let i = 0; i < dataArray.length; i++) {
+                const barHeight = dataArray[i] * 0.7;
+                // Gradient-like color logic
+                canvasCtx.fillStyle = `hsl(${200 + barHeight}, 70%, 60%)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 2;
+            }
+        }
+    </script>
+</body>
+</html>
