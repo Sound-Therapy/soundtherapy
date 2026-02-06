@@ -3,29 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v43</title>
+    <title>SoundTherapy v44</title>
     <style>
         body { 
-            margin: 0; background: #0f172a; color: #f8fafc; 
-            font-family: sans-serif; display: flex; 
+            margin: 0; background: #020617; color: #f8fafc; 
+            font-family: -apple-system, sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.3s;
+            height: 100vh; transition: background 0.5s ease;
         }
-        #version-tag { position: absolute; top: 10px; right: 20px; font-size: 0.8rem; color: #475569; }
-        #status { font-size: 1.1rem; font-weight: bold; color: #38bdf8; text-align: center; margin-bottom: 20px; }
-        .vol-display { font-size: 5rem; font-weight: 900; margin: 10px 0; color: #f8fafc; }
-        .start-btn { padding: 25px 60px; font-size: 1.3rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; }
-        .alert-mode { background: #991b1b !important; }
-        #mic-name { font-size: 0.8rem; color: #64748b; margin-top: 20px; }
+        #version-tag { position: absolute; top: 15px; right: 20px; font-size: 0.8rem; color: #334155; }
+        #status { font-size: 1.1rem; font-weight: 600; color: #38bdf8; text-align: center; margin-bottom: 20px; }
+        .vol-display { font-size: 6rem; font-weight: 900; margin: 5px 0; color: #f8fafc; text-shadow: 0 0 20px rgba(255,255,255,0.1); }
+        .start-btn { padding: 25px 70px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #2563eb; color: white; box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4); }
+        .alert-mode { background: #450a0a !important; }
+        #mic-name { font-size: 0.8rem; color: #475569; margin-top: 25px; background: #0f172a; padding: 8px 15px; border-radius: 20px; }
     </style>
 </head>
 <body>
 
-    <div id="version-tag">v43.0</div>
-    <div id="status">SYSTEM READY<br>Threshold: 30</div>
+    <div id="version-tag">v44.0</div>
+    <div id="status">READY FOR CLINICAL HI-FI<br>Connect Mic First, Sunglasses Last</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
-    <div id="mic-name">Active Mic: Standby</div>
+    <div id="mic-name">MIC: STANDBY</div>
 
     <script>
         const startBtn = document.getElementById('startBtn');
@@ -43,15 +43,15 @@
 
         startBtn.onclick = async function() {
             try {
-                // [필승 전략] 버튼 누르는 순간 둘 다 play()를 호출해서 통행증을 얻음
-                // 단, maskSound는 아주 미세하게 0.001 볼륨으로 시작해서 귀에 안 들리게 함
-                bgMusic.volume = 0.5;
-                maskSound.volume = 0.001; 
+                // 1. 오디오 컨텍스트 먼저 생성 (아이폰 잠금 해제용)
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 
+                // 2. 배경음악만 먼저 실행 (노이즈는 건드리지 않음)
+                bgMusic.volume = 0.5;
                 await bgMusic.play();
-                await maskSound.play();
 
-                // 마이크 기기 확인
+                // 3. 마이크 권한 및 기기 체크
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 let targetId = null;
                 let targetLabel = "Internal Mic";
@@ -71,9 +71,9 @@
                              echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                 });
 
-                micNameDisp.innerText = "Active Mic: " + targetLabel;
+                micNameDisp.innerText = "ACTIVE MIC: " + targetLabel.toUpperCase();
+                micNameDisp.style.color = targetId ? "#4ade80" : "#94a3b8";
 
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 256;
@@ -81,7 +81,11 @@
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
                 startBtn.style.display = 'none';
+                statusDisp.innerHTML = "SYSTEM LIVE<br>Sunglasses Connection Enabled";
+                
                 update();
+                tempStream.getTracks().forEach(t => t.stop());
+
             } catch (e) {
                 alert("Error: " + e.message);
             }
@@ -99,17 +103,23 @@
             volNumDisp.innerText = Math.round(average);
 
             if (average >= THRESHOLD) {
-                // 30 이상이면 볼륨만 1.0으로 올림
-                maskSound.volume = 1.0;
+                // 30 이상일 때만 noise.mp3를 '방금 막 누른 것처럼' 재생 시도
+                if (maskSound.paused) {
+                    maskSound.volume = 1.0;
+                    maskSound.play().catch(()=>{}); 
+                }
                 bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
-                statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
+                statusDisp.innerHTML = "🚨 NOISE MASKING ACTIVE";
             } else {
-                // 30 미만이면 다시 귀에 안 들리는 0.001로 내림
-                maskSound.volume = 0.001;
+                // 30 미만일 때 아예 정지(Pause) 시켜서 자원을 비움
+                if (!maskSound.paused) {
+                    maskSound.pause();
+                    maskSound.currentTime = 0;
+                }
                 bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
-                statusDisp.innerHTML = "HI-FI MONITORING<br>Threshold: 30";
+                statusDisp.innerHTML = "MONITORING ENVIRONMENT<br>HI-FI MODE";
             }
         }
     </script>
