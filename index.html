@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy | Noise Fix</title>
+    <title>SoundTherapy v40</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -11,6 +11,7 @@
             flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; transition: background 0.3s;
         }
+        #version-tag { position: absolute; top: 10px; right: 20px; font-size: 0.8rem; color: #475569; }
         #status { font-size: 1.1rem; font-weight: bold; color: #38bdf8; text-align: center; margin-bottom: 20px; }
         .vol-display { font-size: 5rem; font-weight: 900; margin: 10px 0; color: #f8fafc; }
         .start-btn { padding: 25px 60px; font-size: 1.3rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; }
@@ -20,7 +21,8 @@
 </head>
 <body>
 
-    <div id="status">HI-FI MODE READY<br>Threshold: 30</div>
+    <div id="version-tag">v40.0</div>
+    <div id="status">HI-FI SYSTEM READY<br>Threshold: 30</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">Active Mic: Standby</div>
@@ -33,19 +35,28 @@
 
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
+        
         bgMusic.loop = true;
         maskSound.loop = true;
+        
+        // 중요: 초기 볼륨을 0으로 셋팅
+        bgMusic.volume = 0;
+        maskSound.volume = 0;
 
         let audioCtx, analyser, dataArray;
         const THRESHOLD = 30;
 
         startBtn.onclick = async function() {
             try {
-                // --- [중요] 아이폰 재생 허락 받기 (Unmute) ---
-                bgMusic.play().then(() => bgMusic.pause());
-                maskSound.play().then(() => maskSound.pause());
-                maskSound.volume = 0; // 처음에 꺼둠
+                // 1. 아이폰 오디오 잠금 해제 (유저 인터랙션 내에서 실행)
+                bgMusic.play();
+                maskSound.play();
+                
+                // 일단 둘 다 소리 안 나게 설정
+                bgMusic.volume = 0.5;
+                maskSound.volume = 0;
 
+                // 2. 마이크 권한 및 외부 마이크 체크
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 
@@ -62,18 +73,19 @@
                     }
                 });
 
-                const constraints = {
+                // 3. 고음질 마이크 스트림 생성
+                const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         deviceId: targetId ? { exact: targetId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: false
                     }
-                };
+                });
 
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 micNameDisp.innerText = "Active Mic: " + targetLabel;
 
+                // 4. 오디오 분석기 연결
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
@@ -81,17 +93,12 @@
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // 음악 시작
-                bgMusic.volume = 0.5;
-                bgMusic.play();
-                
-                // 노이즈는 무음 상태로 미리 "재생 중"으로 만듦 (아이폰 우회)
-                maskSound.currentTime = 0;
-                maskSound.play(); 
-
                 startBtn.style.display = 'none';
                 update();
+                
+                // 임시 스트림 정리
                 tempStream.getTracks().forEach(t => t.stop());
+                
             } catch (e) {
                 alert("Error: " + e.message);
             }
@@ -109,13 +116,13 @@
             volNumDisp.innerText = Math.round(average);
 
             if (average >= THRESHOLD) {
-                // 소음 발생 시 볼륨만 키움 (이미 재생 중이므로 즉각 반응)
+                // 소음 발생 시 (30 이상)
                 maskSound.volume = 1.0; 
                 bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
                 statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
             } else {
-                // 조용할 때 볼륨만 0으로 (정지시키지 않음)
+                // 조용할 때 (30 미만)
                 maskSound.volume = 0; 
                 bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
