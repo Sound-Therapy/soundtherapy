@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy | Hi-Fi Noise Control</title>
+    <title>SoundTherapy | Hi-Fi Fix 30</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -11,74 +11,82 @@
             flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; transition: background 0.3s;
         }
-        #status { font-size: 1.2rem; font-weight: bold; color: #38bdf8; text-align: center; margin-bottom: 20px; height: 3rem; }
-        .start-btn { padding: 25px 60px; font-size: 1.3rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
-        .vol-display { font-size: 4rem; font-weight: 900; margin: 20px 0; }
-        .label { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
-        .alert-mode { background: #7f1d1d !important; } /* 소음 감지 시 배경색 변경 */
-        #mic-info { font-size: 0.8rem; color: #64748b; margin-top: 20px; }
+        #status { font-size: 1.1rem; font-weight: bold; color: #38bdf8; text-align: center; margin-bottom: 20px; }
+        .vol-display { font-size: 5rem; font-weight: 900; margin: 10px 0; color: #f8fafc; }
+        .start-btn { padding: 25px 60px; font-size: 1.3rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; }
+        .alert-mode { background: #991b1b !important; }
+        #mic-name { font-size: 0.8rem; color: #64748b; margin-top: 20px; padding: 10px; border: 1px dashed #334155; border-radius: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="status">READY FOR HI-FI SESSION<br><span style="font-size:0.8rem; font-weight:normal;">Connect Sunglasses AFTER clicking Start</span></div>
-    
-    <div class="label">Current Noise Level</div>
+    <div id="status">HI-FI MODE READY<br>Threshold: 30</div>
     <div class="vol-display" id="volNum">0</div>
-    
     <button class="start-btn" id="startBtn">START SYSTEM</button>
-
-    <div id="mic-info">Active Mic: Waiting for activation...</div>
+    <div id="mic-name">Active Mic: Standby</div>
 
     <script>
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
-        const micInfoDisp = document.getElementById('mic-info');
+        const micNameDisp = document.getElementById('mic-name');
 
-        // 오디오 파일 설정
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
         bgMusic.loop = true;
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        const THRESHOLD = 50; // 아버님이 정하신 기준점
+        const THRESHOLD = 30; // 아버님의 요청대로 30으로 하향 조정
 
         startBtn.onclick = async function() {
             try {
-                // 1. 마이크 권한 요청 및 외부 마이크 탐색
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 1. 초기 권한 획득
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                const mic = devices.find(d => d.kind === 'audioinput' && (d.label.toLowerCase().includes('dock') || d.label.toLowerCase().includes('external')));
                 
-                // 2. 오디오 컨텍스트 설정 (에코/노이즈 제거 꺼서 음질 보존)
+                // 2. 외부 마이크(Dock/External) 우선 탐색
+                let targetId = null;
+                let targetLabel = "Default Mic";
+                
+                devices.forEach(device => {
+                    if (device.kind === 'audioinput') {
+                        const label = device.label.toLowerCase();
+                        if (label.includes('dock') || label.includes('external') || label.includes('wired')) {
+                            targetId = device.deviceId;
+                            targetLabel = device.label;
+                        }
+                    }
+                });
+
+                // 3. 고음질을 위해 모든 브라우저 처리 기능 해제 (핵심)
                 const constraints = {
                     audio: {
-                        deviceId: mic ? { exact: mic.deviceId } : undefined,
+                        deviceId: targetId ? { exact: targetId } : undefined,
                         echoCancellation: false,
-                        noiseSuppression: false
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 48000 // 고음질 샘플링 시도
                     }
                 };
-                
-                const finalStream = await navigator.mediaDevices.getUserMedia(constraints);
-                micInfoDisp.innerText = "Active Mic: " + (mic ? mic.label : "Default/Internal");
-                
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                micNameDisp.innerText = "Active Mic: " + targetLabel;
+                micNameDisp.style.color = targetId ? "#4ade80" : "#fbbf24";
+
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const source = audioCtx.createMediaStreamSource(finalStream);
+                const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 256;
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // 3. 음악 시작
                 bgMusic.volume = 0.5;
                 bgMusic.play();
-                
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "MONITORING ACTIVE<br><span style='font-size:0.8rem;'>System is watching for noise > 50</span>";
                 
                 update();
+                tempStream.getTracks().forEach(t => t.stop()); // 임시 스트림 종료
             } catch (e) {
                 alert("Error: " + e.message);
             }
@@ -89,33 +97,23 @@
             if (!analyser) return;
 
             analyser.getByteFrequencyData(dataArray);
-
-            // 평균 소음 계산
             let sum = 0;
             for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
             let average = sum / dataArray.length;
             
             volNumDisp.innerText = Math.round(average);
 
-            // --- 핵심 로직: 50 이상일 때 처리 ---
             if (average >= THRESHOLD) {
-                // 1. 소음 발생 시
-                if (maskSound.paused) {
-                    maskSound.volume = 1.0;
-                    maskSound.play(); // noise.mp3 재생
-                }
-                bgMusic.volume = 0.9; // 음악 소리도 키움
+                if (maskSound.paused) { maskSound.play(); }
+                maskSound.volume = 1.0;
+                bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
-                statusDisp.innerHTML = "🚨 NOISE DETECTED (50+)<br>Masking Active";
+                statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
             } else {
-                // 2. 조용해졌을 때
-                if (!maskSound.paused) {
-                    maskSound.pause(); // noise.mp3 정지
-                    maskSound.currentTime = 0;
-                }
-                bgMusic.volume = 0.5; // 음악 소리 다시 낮춤
+                if (!maskSound.paused) { maskSound.pause(); maskSound.currentTime = 0; }
+                bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
-                statusDisp.innerHTML = "MONITORING ACTIVE<br><span style='font-size:0.8rem; font-weight:normal;'>Environment Stable</span>";
+                statusDisp.innerHTML = "HI-FI MONITORING<br>Threshold: 30";
             }
         }
     </script>
