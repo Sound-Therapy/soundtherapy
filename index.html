@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v47</title>
+    <title>SoundTherapy v48</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,14 +21,13 @@
 </head>
 <body>
 
-    <div id="version-tag">v47.0</div>
-    <div id="status">DUAL-ACTION MASKING READY<br>Music Up + Noise Layering</div>
+    <div id="version-tag">v48.0</div>
+    <div id="status">HI-FI ENFORCED ENGINE<br>Forced Stereo Mode</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
-        // Core Web Audio Logic
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
@@ -48,43 +47,54 @@
 
         startBtn.onclick = async function() {
             try {
-                statusDisp.innerText = "Synchronizing Audio Channels...";
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // [v48 핵심] AudioContext 생성 시 샘플 레이트 강제 지정하여 고음질 유도
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 44100, 
+                    latencyHint: 'playback'
+                });
+
+                statusDisp.innerText = "Enforcing Stereo Routing...";
 
                 [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
                     loadAudio('noise.mp3')
                 ]);
 
+                // 마이크 설정에서 고음질을 방해하는 자동 기능들(에코 제거 등)을 전부 끔
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const extMic = devices.find(d => d.kind === 'audioinput' && 
                     (d.label.toLowerCase().includes('dock') || d.label.toLowerCase().includes('external')));
                 
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { deviceId: extMic ? { exact: extMic.deviceId } : undefined,
-                             echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                    audio: { 
+                        deviceId: extMic ? { exact: extMic.deviceId } : undefined,
+                        echoCancellation: false, 
+                        noiseSuppression: false, 
+                        autoGainControl: false,
+                        googEchoCancellation: false,
+                        googAutoGainControl: false,
+                        googNoiseSuppression: false
+                    }
                 });
 
-                micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
+                micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL (WARNING)");
 
                 analyser = audioCtx.createAnalyser();
                 const micIn = audioCtx.createMediaStreamSource(stream);
                 micIn.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // Setup Music Node
                 bgSource = audioCtx.createBufferSource();
                 bgSource.buffer = bgBuffer;
                 bgSource.loop = true;
                 bgGain = audioCtx.createGain();
-                bgGain.gain.value = 0.5; // Default music volume
+                bgGain.gain.value = 0.5;
 
-                // Setup Noise Node
                 maskSource = audioCtx.createBufferSource();
                 maskSource.buffer = maskBuffer;
                 maskSource.loop = true;
                 maskGain = audioCtx.createGain();
-                maskGain.gain.value = 0; // Silent at start
+                maskGain.gain.value = 0;
 
                 bgSource.connect(bgGain).connect(audioCtx.destination);
                 maskSource.connect(maskGain).connect(audioCtx.destination);
@@ -93,7 +103,7 @@
                 maskSource.start(0);
 
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "PROTECTION ACTIVE<br>Threshold: 30";
+                statusDisp.innerHTML = "SYSTEM LIVE<br>Hi-Fi Protection Active";
                 
                 update();
             } catch (e) {
@@ -110,19 +120,13 @@
             volNumDisp.innerText = Math.round(avg);
 
             if (avg >= THRESHOLD) {
-                // High Noise Event (e.g. Drill)
-                // Ramp up both sounds over 0.1 seconds for smoothness
                 maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1); 
                 bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1); 
                 document.body.classList.add('alert-mode');
-                statusDisp.innerHTML = "🚨 MASKING & BOOST ACTIVE";
             } else {
-                // Quiet Environment
-                // Back to comfortable levels
                 maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
                 bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
                 document.body.classList.remove('alert-mode');
-                statusDisp.innerHTML = "MONITORING<br>Music: Comfort Level";
             }
         }
     </script>
