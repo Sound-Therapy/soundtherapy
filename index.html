@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v52</title>
+    <title>SoundTherapy v53</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,14 +21,13 @@
 </head>
 <body>
 
-    <div id="version-tag">v52.0 (v46 Engine Fix)</div>
-    <div id="status">HI-FI EXPERT ENGINE LIVE<br>Drill Detection Mode</div>
+    <div id="version-tag">v53.0 (v46 Specs Restored)</div>
+    <div id="status">HI-FI SPECTRUM ANALYZER<br>Pure High-Freq Target</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
-        // v46의 원본 로직을 그대로 유지합니다.
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
@@ -38,7 +37,7 @@
         let bgBuffer, maskBuffer;
         let bgSource, maskSource;
         let bgGain, maskGain;
-        const THRESHOLD = 20; // 고주파 타겟이므로 기존 30보다 약간 낮췄습니다.
+        const THRESHOLD = 35; // 고해상도 모드이므로 수치를 다시 35 정도로 잡았습니다.
 
         async function loadAudio(url) {
             const response = await fetch(url);
@@ -48,9 +47,8 @@
 
         startBtn.onclick = async function() {
             try {
-                statusDisp.innerText = "Loading Audio Assets...";
-                // v46 원본 설정 그대로 유지
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                statusDisp.innerText = "Loading Assets...";
 
                 [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
@@ -69,7 +67,8 @@
                 micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
 
                 analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 256; // v46과 동일하게 복구
+                // [v53 핵심] v46 성공의 일등공신인 기본 fftSize 2048 유지
+                analyser.fftSize = 2048; 
                 const micIn = audioCtx.createMediaStreamSource(stream);
                 micIn.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -93,12 +92,11 @@
                 maskSource.start(0);
 
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "SYSTEM ACTIVE<br>Monitoring Drill Frequency";
+                statusDisp.innerHTML = "HI-FI MODE ACTIVE<br>Targeting Drill Frequency";
                 
                 update();
             } catch (e) {
                 alert("Error: " + e.message);
-                statusDisp.innerText = "Error! Check assets.";
             }
         };
 
@@ -108,12 +106,12 @@
 
             analyser.getByteFrequencyData(dataArray);
             
-            // [v52 핵심: v46 엔진 위에서 계산법만 변경]
-            // 말소리(저음) 영역인 앞부분 인덱스는 버리고, 
-            // 드릴 소리가 집중되는 고주파 영역(인덱스 40~120)만 평균을 냅니다.
+            // [v53 드릴 스나이퍼 로직] 
+            // fftSize가 2048일 때, 인덱스 250~500은 약 5kHz ~ 10kHz 대역입니다.
+            // 치과 드릴의 '킬러 주파수' 대역만 정밀하게 합산합니다.
             let highFreqSum = 0;
             let count = 0;
-            for(let i = 40; i < 120; i++) { 
+            for(let i = 250; i < 500; i++) { 
                 highFreqSum += dataArray[i];
                 count++;
             }
@@ -122,12 +120,10 @@
             volNumDisp.innerText = Math.round(highFreqAvg);
 
             if (highFreqAvg >= THRESHOLD) {
-                // 드릴 감지 시: 노이즈 ON + 음악 볼륨 UP
                 maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
                 bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
                 document.body.classList.add('alert-mode');
             } else {
-                // 평상시
                 maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
                 bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
                 document.body.classList.remove('alert-mode');
