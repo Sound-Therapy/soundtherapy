@@ -3,48 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy Pro | Hi-Fi Mode</title>
+    <title>SoundTherapy | External Mic Fix</title>
     <style>
-        body { 
-            margin: 0; background: #0f172a; color: #f8fafc; 
-            font-family: sans-serif; display: flex; 
-            flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; overflow: hidden;
-        }
-        #status-display { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; color: #38bdf8; text-align: center; height: 3.5rem; line-height: 1.4; }
-        .start-btn { padding: 24px 60px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 100px; cursor: pointer; background: #3b82f6; color: white; }
-        canvas { width: 90%; height: 160px; background: rgba(0,0,0,0.3); border-radius: 24px; margin-top: 20px; border: 1px solid #334155; }
-        .metrics { margin-top: 30px; display: flex; gap: 15px; width: 90%; }
-        .metric-box { flex: 1; display: flex; flex-direction: column; text-align: center; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 15px; }
-        .label { font-size: 0.65rem; color: #94a3b8; margin-bottom: 5px; }
-        .value { font-size: 1.5rem; font-weight: 800; }
-        .alert-red { background: #450a0a !important; border: 1px solid #ef4444; }
+        body { margin: 0; background: #0f172a; color: #f8fafc; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #status { font-size: 1rem; color: #38bdf8; text-align: center; margin-bottom: 20px; line-height: 1.6; }
+        .start-btn { padding: 20px 50px; font-size: 1.2rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #3b82f6; color: white; }
+        #mic-label { font-size: 0.8rem; color: #94a3b8; margin-top: 10px; }
+        .success { color: #4ade80 !important; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="status-display">Hi-Fi Audio Mode<br><span style="font-size: 0.8rem; font-weight: 400; color: #64748b;">(Mic: Phone | Speaker: Glasses)</span></div>
-    <button class="start-btn" id="startBtn">START HI-FI SYSTEM</button>
-    <canvas id="visualizer"></canvas>
-
-    <div class="metrics">
-        <div class="metric-box">
-            <span class="label">LEVEL (Suction)</span>
-            <span class="value" id="volLevel">0</span>
-        </div>
-        <div class="metric-box">
-            <span class="label">DRILL SENSE</span>
-            <span class="value" id="drillLevel" style="color: #ef4444;">0</span>
-        </div>
-    </div>
+    <div id="status">System Standby<br>Please connect Wireless Mic first.</div>
+    <button class="start-btn" id="startBtn">ACTIVATE SYSTEM</button>
+    <div id="mic-label">Active Mic: Waiting...</div>
 
     <script>
         const startBtn = document.getElementById('startBtn');
-        const statusDisplay = document.getElementById('status-display');
-        const volLevelDisp = document.getElementById('volLevel');
-        const drillLevelDisp = document.getElementById('drillLevel');
-        const canvas = document.getElementById('visualizer');
-        const canvasCtx = canvas.getContext('2d');
+        const statusDisp = document.getElementById('status');
+        const micLabel = document.getElementById('mic-label');
 
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
@@ -52,94 +29,64 @@
         maskSound.loop = true;
 
         let audioCtx, analyser, dataArray;
-        
-        // --- 아버님 측정값 기반 1차 세팅 (낮은 수치 대비) ---
-        const SUCTION_THRESHOLD = 15; // 석션이 10~20 사이라면 15로 시작
-        const DRILL_THRESHOLD = 18;   // 드릴이 20 근처라면 18로 시작
 
-        startBtn.onclick = function() {
+        startBtn.onclick = async function() {
             try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // 1. First, request general permission
+                const initialStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
-                // CRITICAL: Prevent Bluetooth HFP mode by disabling processing
+                // 2. Look for the Wireless/External Mic
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioDevices = devices.filter(device => device.kind === 'audioinput');
+                
+                // Priority list: Look for 'External', 'Dock', or anything that isn't the Bluetooth headset name
+                let targetDeviceId = null;
+                let foundLabel = "Internal/Default";
+
+                for (let device of audioDevices) {
+                    const label = device.label.toLowerCase();
+                    // Usually, wireless receivers show up as "Dock Connector" or "External Microphone"
+                    if (label.includes('external') || label.includes('dock') || label.includes('wired')) {
+                        targetDeviceId = device.deviceId;
+                        foundLabel = device.label;
+                        break;
+                    }
+                }
+
+                // 3. Re-open stream with the SPECIFIC external microphone
                 const constraints = {
                     audio: {
+                        deviceId: targetDeviceId ? { exact: targetDeviceId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: false
                     }
                 };
 
-                navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-                    const source = audioCtx.createMediaStreamSource(stream);
-                    
-                    // Add Software Gain (Boost incoming low signal by 2x)
-                    const gainNode = audioCtx.createGain();
-                    gainNode.gain.value = 2.0; 
-                    
-                    analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 256;
-                    
-                    source.connect(gainNode);
-                    gainNode.connect(analyser);
-                    
-                    dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const finalStream = await navigator.mediaDevices.getUserMedia(constraints);
+                micLabel.innerText = "Active Mic: " + (targetDeviceId ? foundLabel : "Default (Auto-select)");
+                micLabel.classList.add('success');
 
-                    bgMusic.volume = 0.4; 
-                    bgMusic.play();
-                    maskSound.volume = 0;
+                // 4. Setup Audio Context
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioCtx.createMediaStreamSource(finalStream);
+                analyser = audioCtx.createAnalyser();
+                source.connect(analyser);
 
-                    startBtn.style.display = 'none';
-                    update();
-                }).catch(function(err) { alert("Mic Error: " + err.name); });
-            } catch (e) { alert("Init Error: " + e.message); }
-        };
-
-        function update() {
-            requestAnimationFrame(update);
-            if (!analyser) return;
-
-            analyser.getByteFrequencyData(dataArray);
-
-            let totalSum = 0;
-            for(let i = 0; i < dataArray.length; i++) { totalSum += dataArray[i]; }
-            let overallAvg = totalSum / dataArray.length;
-            volLevelDisp.innerText = Math.round(overallAvg);
-
-            // High frequency for Drill (last 30% of bars)
-            let drillSum = 0;
-            let drillCount = 0;
-            for(let i = 80; i < 120; i++) { drillSum += dataArray[i]; drillCount++; }
-            let drillAvg = drillSum / drillCount;
-            drillLevelDisp.innerText = Math.round(drillAvg);
-
-            // Control Logic
-            if (drillAvg > DRILL_THRESHOLD) {
-                statusDisplay.innerHTML = "🚨 DRILL DETECTED<br>Noise Active";
-                document.body.classList.add('alert-red');
-                bgMusic.volume = 0.9;
-                if (maskSound.paused) { maskSound.volume = 1.0; maskSound.play(); }
-            } else if (overallAvg > SUCTION_THRESHOLD) {
-                statusDisplay.innerHTML = "SUCTION ACTIVE<br>Music Up";
-                document.body.classList.remove('alert-red');
-                bgMusic.volume = 0.8;
-                if (!maskSound.paused) { maskSound.pause(); }
-            } else {
-                statusDisplay.innerHTML = "MONITORING<br><span style='font-size:0.7rem; color:#64748b;'>Hi-Fi Environment</span>";
-                document.body.classList.remove('alert-red');
                 bgMusic.volume = 0.4;
-                if (!maskSound.paused) { maskSound.pause(); }
-            }
+                bgMusic.play();
+                
+                statusDisp.innerHTML = "<span class='success'>CORE ACTIVATED</span><br>Music is playing in High-Fi";
+                startBtn.style.display = 'none';
 
-            canvasCtx.fillStyle = '#0f172a';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / dataArray.length) * 2;
-            for(let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i];
-                canvasCtx.fillStyle = (i > 80) ? '#ef4444' : '#38bdf8';
-                canvasCtx.fillRect(i * (barWidth + 1), canvas.height - barHeight, barWidth, barHeight);
+                // Initial stream stop to save resources
+                initialStream.getTracks().forEach(track => track.stop());
+
+            } catch (e) {
+                alert("Error: " + e.message);
+                statusDisp.innerText = "Error occurred. Check permissions.";
             }
-        }
+        };
     </script>
 </body>
 </html>
