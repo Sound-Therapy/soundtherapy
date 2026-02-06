@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v51</title>
+    <title>SoundTherapy v52</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
             font-family: -apple-system, sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.4s ease; overflow: hidden;
+            height: 100vh; transition: background 0.5s ease; overflow: hidden;
         }
         #version-tag { position: absolute; top: 15px; right: 20px; font-size: 0.8rem; color: #334155; }
         #status { font-size: 1.1rem; font-weight: 600; color: #38bdf8; text-align: center; margin-bottom: 20px; }
-        .vol-display { font-size: 6rem; font-weight: 900; margin: 5px 0; font-variant-numeric: tabular-nums; }
+        .vol-display { font-size: 6rem; font-weight: 900; margin: 5px 0; }
         .start-btn { padding: 25px 70px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #2563eb; color: white; box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4); }
         .alert-mode { background: #450a0a !important; }
         #mic-name { font-size: 0.8rem; color: #475569; margin-top: 25px; background: #0f172a; padding: 8px 15px; border-radius: 20px; }
@@ -21,8 +21,118 @@
 </head>
 <body>
 
-    <div id="version-tag">v51.0 (Based on v46)</div>
-    <div id="status">DRILL DETECTION MODE<br>Ignores Speech, Targets High-Pitch</div>
+    <div id="version-tag">v52.0 (v46 Engine Fix)</div>
+    <div id="status">HI-FI EXPERT ENGINE LIVE<br>Drill Detection Mode</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
-    <div id
+    <div id="mic-name">MIC: STANDBY</div>
+
+    <script>
+        // v46의 원본 로직을 그대로 유지합니다.
+        const startBtn = document.getElementById('startBtn');
+        const volNumDisp = document.getElementById('volNum');
+        const statusDisp = document.getElementById('status');
+        const micNameDisp = document.getElementById('mic-name');
+
+        let audioCtx, analyser, dataArray;
+        let bgBuffer, maskBuffer;
+        let bgSource, maskSource;
+        let bgGain, maskGain;
+        const THRESHOLD = 20; // 고주파 타겟이므로 기존 30보다 약간 낮췄습니다.
+
+        async function loadAudio(url) {
+            const response = await fetch(url);
+            const arrayBuffer = await response.arrayBuffer();
+            return await audioCtx.decodeAudioData(arrayBuffer);
+        }
+
+        startBtn.onclick = async function() {
+            try {
+                statusDisp.innerText = "Loading Audio Assets...";
+                // v46 원본 설정 그대로 유지
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                [bgBuffer, maskBuffer] = await Promise.all([
+                    loadAudio('music.mp3'),
+                    loadAudio('noise.mp3')
+                ]);
+
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const extMic = devices.find(d => d.kind === 'audioinput' && 
+                    (d.label.toLowerCase().includes('dock') || d.label.toLowerCase().includes('external')));
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { deviceId: extMic ? { exact: extMic.deviceId } : undefined,
+                             echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                });
+
+                micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256; // v46과 동일하게 복구
+                const micIn = audioCtx.createMediaStreamSource(stream);
+                micIn.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                bgSource = audioCtx.createBufferSource();
+                bgSource.buffer = bgBuffer;
+                bgSource.loop = true;
+                bgGain = audioCtx.createGain();
+                bgGain.gain.value = 0.5;
+
+                maskSource = audioCtx.createBufferSource();
+                maskSource.buffer = maskBuffer;
+                maskSource.loop = true;
+                maskGain = audioCtx.createGain();
+                maskGain.gain.value = 0; 
+
+                bgSource.connect(bgGain).connect(audioCtx.destination);
+                maskSource.connect(maskGain).connect(audioCtx.destination);
+
+                bgSource.start(0);
+                maskSource.start(0);
+
+                startBtn.style.display = 'none';
+                statusDisp.innerHTML = "SYSTEM ACTIVE<br>Monitoring Drill Frequency";
+                
+                update();
+            } catch (e) {
+                alert("Error: " + e.message);
+                statusDisp.innerText = "Error! Check assets.";
+            }
+        };
+
+        function update() {
+            requestAnimationFrame(update);
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            // [v52 핵심: v46 엔진 위에서 계산법만 변경]
+            // 말소리(저음) 영역인 앞부분 인덱스는 버리고, 
+            // 드릴 소리가 집중되는 고주파 영역(인덱스 40~120)만 평균을 냅니다.
+            let highFreqSum = 0;
+            let count = 0;
+            for(let i = 40; i < 120; i++) { 
+                highFreqSum += dataArray[i];
+                count++;
+            }
+            let highFreqAvg = highFreqSum / count;
+            
+            volNumDisp.innerText = Math.round(highFreqAvg);
+
+            if (highFreqAvg >= THRESHOLD) {
+                // 드릴 감지 시: 노이즈 ON + 음악 볼륨 UP
+                maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
+                bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
+                document.body.classList.add('alert-mode');
+            } else {
+                // 평상시
+                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
+                document.body.classList.remove('alert-mode');
+            }
+        }
+    </script>
+</body>
+</html>
