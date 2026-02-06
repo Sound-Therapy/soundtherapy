@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v41</title>
+    <title>SoundTherapy v42</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -21,7 +21,7 @@
 </head>
 <body>
 
-    <div id="version-tag">v41.0</div>
+    <div id="version-tag">v42.0</div>
     <div id="status">HI-FI SYSTEM READY<br>Threshold: 30</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
@@ -33,32 +33,28 @@
         const statusDisp = document.getElementById('status');
         const micNameDisp = document.getElementById('mic-name');
 
+        // Audio Objects
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
         
         bgMusic.loop = true;
         maskSound.loop = true;
-        
-        // 초기 볼륨 강제 0 설정
-        bgMusic.volume = 0;
-        maskSound.volume = 0;
 
         let audioCtx, analyser, dataArray;
         const THRESHOLD = 30;
+        let isMaskingPlaying = false;
 
         startBtn.onclick = async function() {
             try {
-                // 1. 노이즈는 0인 상태로 두고 음악만 먼저 재생
+                // 1. 핵심: 사용자의 첫 클릭 때 두 파일을 모두 '준비'만 시킴
+                // bgMusic은 바로 틀고, maskSound는 load만 해서 권한 획득
                 bgMusic.volume = 0.5;
                 bgMusic.play();
                 
-                // 2. 시간차를 두고 노이즈 재생 (아이폰 볼륨 인식 버그 방지)
-                setTimeout(() => {
-                    maskSound.volume = 0;
-                    maskSound.play();
-                }, 500);
+                maskSound.load(); // 미리 로드하여 iOS 권한 획득
+                maskSound.volume = 0;
 
-                // 3. 마이크 권한 및 기기 체크
+                // 2. 마이크 권한 및 기기 체크
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 
@@ -114,13 +110,22 @@
             
             volNumDisp.innerText = Math.round(average);
 
+            // --- 고도화된 재생 로직 ---
             if (average >= THRESHOLD) {
-                maskSound.volume = 1.0; 
+                if (!isMaskingPlaying) {
+                    maskSound.volume = 1.0;
+                    maskSound.play().catch(e => console.log("iOS Play block:", e));
+                    isMaskingPlaying = true;
+                }
                 bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
                 statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
             } else {
-                maskSound.volume = 0; 
+                if (isMaskingPlaying) {
+                    maskSound.pause();
+                    maskSound.currentTime = 0;
+                    isMaskingPlaying = false;
+                }
                 bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
                 statusDisp.innerHTML = "HI-FI MONITORING<br>Threshold: 30";
