@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v40</title>
+    <title>SoundTherapy v43</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -21,8 +21,8 @@
 </head>
 <body>
 
-    <div id="version-tag">v40.0</div>
-    <div id="status">HI-FI SYSTEM READY<br>Threshold: 30</div>
+    <div id="version-tag">v43.0</div>
+    <div id="status">SYSTEM READY<br>Threshold: 30</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">Active Mic: Standby</div>
@@ -35,34 +35,27 @@
 
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
-        
         bgMusic.loop = true;
         maskSound.loop = true;
-        
-        // 중요: 초기 볼륨을 0으로 셋팅
-        bgMusic.volume = 0;
-        maskSound.volume = 0;
 
         let audioCtx, analyser, dataArray;
         const THRESHOLD = 30;
 
         startBtn.onclick = async function() {
             try {
-                // 1. 아이폰 오디오 잠금 해제 (유저 인터랙션 내에서 실행)
-                bgMusic.play();
-                maskSound.play();
-                
-                // 일단 둘 다 소리 안 나게 설정
+                // [필승 전략] 버튼 누르는 순간 둘 다 play()를 호출해서 통행증을 얻음
+                // 단, maskSound는 아주 미세하게 0.001 볼륨으로 시작해서 귀에 안 들리게 함
                 bgMusic.volume = 0.5;
-                maskSound.volume = 0;
+                maskSound.volume = 0.001; 
+                
+                await bgMusic.play();
+                await maskSound.play();
 
-                // 2. 마이크 권한 및 외부 마이크 체크
-                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 마이크 기기 확인
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                
                 let targetId = null;
-                let targetLabel = "Default Mic";
-                
+                let targetLabel = "Internal Mic";
+
                 devices.forEach(device => {
                     if (device.kind === 'audioinput') {
                         const label = device.label.toLowerCase();
@@ -73,19 +66,13 @@
                     }
                 });
 
-                // 3. 고음질 마이크 스트림 생성
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        deviceId: targetId ? { exact: targetId } : undefined,
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    }
+                    audio: { deviceId: targetId ? { exact: targetId } : undefined,
+                             echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                 });
 
                 micNameDisp.innerText = "Active Mic: " + targetLabel;
 
-                // 4. 오디오 분석기 연결
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
@@ -95,10 +82,6 @@
 
                 startBtn.style.display = 'none';
                 update();
-                
-                // 임시 스트림 정리
-                tempStream.getTracks().forEach(t => t.stop());
-                
             } catch (e) {
                 alert("Error: " + e.message);
             }
@@ -116,14 +99,14 @@
             volNumDisp.innerText = Math.round(average);
 
             if (average >= THRESHOLD) {
-                // 소음 발생 시 (30 이상)
-                maskSound.volume = 1.0; 
+                // 30 이상이면 볼륨만 1.0으로 올림
+                maskSound.volume = 1.0;
                 bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
                 statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
             } else {
-                // 조용할 때 (30 미만)
-                maskSound.volume = 0; 
+                // 30 미만이면 다시 귀에 안 들리는 0.001로 내림
+                maskSound.volume = 0.001;
                 bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
                 statusDisp.innerHTML = "HI-FI MONITORING<br>Threshold: 30";
