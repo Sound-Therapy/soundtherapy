@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v42</title>
+    <title>SoundTherapy v40</title>
     <style>
         body { 
             margin: 0; background: #0f172a; color: #f8fafc; 
@@ -21,7 +21,7 @@
 </head>
 <body>
 
-    <div id="version-tag">v42.0</div>
+    <div id="version-tag">v40.0</div>
     <div id="status">HI-FI SYSTEM READY<br>Threshold: 30</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
@@ -33,28 +33,30 @@
         const statusDisp = document.getElementById('status');
         const micNameDisp = document.getElementById('mic-name');
 
-        // Audio Objects
         const bgMusic = new Audio('music.mp3');
         const maskSound = new Audio('noise.mp3');
         
         bgMusic.loop = true;
         maskSound.loop = true;
+        
+        // 중요: 초기 볼륨을 0으로 셋팅
+        bgMusic.volume = 0;
+        maskSound.volume = 0;
 
         let audioCtx, analyser, dataArray;
         const THRESHOLD = 30;
-        let isMaskingPlaying = false;
 
         startBtn.onclick = async function() {
             try {
-                // 1. 핵심: 사용자의 첫 클릭 때 두 파일을 모두 '준비'만 시킴
-                // bgMusic은 바로 틀고, maskSound는 load만 해서 권한 획득
-                bgMusic.volume = 0.5;
+                // 1. 아이폰 오디오 잠금 해제 (유저 인터랙션 내에서 실행)
                 bgMusic.play();
+                maskSound.play();
                 
-                maskSound.load(); // 미리 로드하여 iOS 권한 획득
+                // 일단 둘 다 소리 안 나게 설정
+                bgMusic.volume = 0.5;
                 maskSound.volume = 0;
 
-                // 2. 마이크 권한 및 기기 체크
+                // 2. 마이크 권한 및 외부 마이크 체크
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 
@@ -71,6 +73,7 @@
                     }
                 });
 
+                // 3. 고음질 마이크 스트림 생성
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         deviceId: targetId ? { exact: targetId } : undefined,
@@ -82,6 +85,7 @@
 
                 micNameDisp.innerText = "Active Mic: " + targetLabel;
 
+                // 4. 오디오 분석기 연결
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const source = audioCtx.createMediaStreamSource(stream);
                 analyser = audioCtx.createAnalyser();
@@ -92,6 +96,7 @@
                 startBtn.style.display = 'none';
                 update();
                 
+                // 임시 스트림 정리
                 tempStream.getTracks().forEach(t => t.stop());
                 
             } catch (e) {
@@ -110,22 +115,15 @@
             
             volNumDisp.innerText = Math.round(average);
 
-            // --- 고도화된 재생 로직 ---
             if (average >= THRESHOLD) {
-                if (!isMaskingPlaying) {
-                    maskSound.volume = 1.0;
-                    maskSound.play().catch(e => console.log("iOS Play block:", e));
-                    isMaskingPlaying = true;
-                }
+                // 소음 발생 시 (30 이상)
+                maskSound.volume = 1.0; 
                 bgMusic.volume = 0.9;
                 document.body.classList.add('alert-mode');
                 statusDisp.innerHTML = "🚨 NOISE DETECTED<br>Masking ON";
             } else {
-                if (isMaskingPlaying) {
-                    maskSound.pause();
-                    maskSound.currentTime = 0;
-                    isMaskingPlaying = false;
-                }
+                // 조용할 때 (30 미만)
+                maskSound.volume = 0; 
                 bgMusic.volume = 0.5;
                 document.body.classList.remove('alert-mode');
                 statusDisp.innerHTML = "HI-FI MONITORING<br>Threshold: 30";
