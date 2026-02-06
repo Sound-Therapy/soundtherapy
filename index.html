@@ -1,127 +1,80 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v44</title>
-    <style>
-        body { 
-            margin: 0; background: #020617; color: #f8fafc; 
-            font-family: -apple-system, sans-serif; display: flex; 
-            flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.5s ease;
-        }
-        #version-tag { position: absolute; top: 15px; right: 20px; font-size: 0.8rem; color: #334155; }
-        #status { font-size: 1.1rem; font-weight: 600; color: #38bdf8; text-align: center; margin-bottom: 20px; }
-        .vol-display { font-size: 6rem; font-weight: 900; margin: 5px 0; color: #f8fafc; text-shadow: 0 0 20px rgba(255,255,255,0.1); }
-        .start-btn { padding: 25px 70px; font-size: 1.4rem; font-weight: 800; border: none; border-radius: 50px; cursor: pointer; background: #2563eb; color: white; box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4); }
-        .alert-mode { background: #450a0a !important; }
-        #mic-name { font-size: 0.8rem; color: #475569; margin-top: 25px; background: #0f172a; padding: 8px 15px; border-radius: 20px; }
-    </style>
-</head>
-<body>
+// Version 45.0 - Expert Web Audio Engine
+// English Only Code as requested
 
-    <div id="version-tag">v44.0</div>
-    <div id="status">READY FOR CLINICAL HI-FI<br>Connect Mic First, Sunglasses Last</div>
-    <div class="vol-display" id="volNum">0</div>
-    <button class="start-btn" id="startBtn">START SYSTEM</button>
-    <div id="mic-name">MIC: STANDBY</div>
+const version = "v45.0";
 
-    <script>
-        const startBtn = document.getElementById('startBtn');
-        const volNumDisp = document.getElementById('volNum');
-        const statusDisp = document.getElementById('status');
-        const micNameDisp = document.getElementById('mic-name');
+let audioCtx;
+let bgSource, maskSource;
+let bgGain, maskGain;
+let analyser, dataArray;
+const THRESHOLD = 30;
 
-        const bgMusic = new Audio('music.mp3');
-        const maskSound = new Audio('noise.mp3');
-        bgMusic.loop = true;
-        maskSound.loop = true;
+async function initSystem() {
+    try {
+        // 1. Create Audio Context
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 2. Load Audio Files as ArrayBuffers
+        const [bgBuffer, maskBuffer] = await Promise.all([
+            fetch('music.mp3').then(r => r.arrayBuffer()).then(b => audioCtx.decodeAudioData(b)),
+            fetch('noise.mp3').then(r => r.arrayBuffer()).then(b => audioCtx.decodeAudioData(b))
+        ]);
 
-        let audioCtx, analyser, dataArray;
-        const THRESHOLD = 30;
+        // 3. Setup Mic Stream
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const extMic = devices.find(d => d.kind === 'audioinput' && (d.label.toLowerCase().includes('dock') || d.label.toLowerCase().includes('external')));
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: extMic ? { exact: extMic.deviceId } : undefined,
+                     echoCancellation: false, noiseSuppression: false }
+        });
 
-        startBtn.onclick = async function() {
-            try {
-                // 1. 오디오 컨텍스트 먼저 생성 (아이폰 잠금 해제용)
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // 2. 배경음악만 먼저 실행 (노이즈는 건드리지 않음)
-                bgMusic.volume = 0.5;
-                await bgMusic.play();
+        // 4. Setup Nodes
+        analyser = audioCtx.createAnalyser();
+        const micSource = audioCtx.createMediaStreamSource(stream);
+        micSource.connect(analyser);
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                // 3. 마이크 권한 및 기기 체크
-                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                let targetId = null;
-                let targetLabel = "Internal Mic";
+        // 5. Setup Music & Noise Sources
+        bgSource = audioCtx.createBufferSource();
+        bgSource.buffer = bgBuffer;
+        bgSource.loop = true;
+        bgGain = audioCtx.createGain();
+        bgGain.gain.value = 0.5;
+        bgSource.connect(bgGain).connect(audioCtx.destination);
 
-                devices.forEach(device => {
-                    if (device.kind === 'audioinput') {
-                        const label = device.label.toLowerCase();
-                        if (label.includes('dock') || label.includes('external') || label.includes('wired')) {
-                            targetId = device.deviceId;
-                            targetLabel = device.label;
-                        }
-                    }
-                });
+        maskSource = audioCtx.createBufferSource();
+        maskSource.buffer = maskBuffer;
+        maskSource.loop = true;
+        maskGain = audioCtx.createGain();
+        maskGain.gain.value = 0.0; // Start silent
+        maskSource.connect(maskGain).connect(audioCtx.destination);
 
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { deviceId: targetId ? { exact: targetId } : undefined,
-                             echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-                });
+        // Start playing both (Inaudible noise)
+        bgSource.start(0);
+        maskSource.start(0);
 
-                micNameDisp.innerText = "ACTIVE MIC: " + targetLabel.toUpperCase();
-                micNameDisp.style.color = targetId ? "#4ade80" : "#94a3b8";
+        update();
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('mic-name').innerText = "MIC: " + (extMic ? extMic.label : "INTERNAL");
+    } catch (e) {
+        alert("Init Error: " + e.message);
+    }
+}
 
-                const source = audioCtx.createMediaStreamSource(stream);
-                analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 256;
-                source.connect(analyser);
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
+function update() {
+    requestAnimationFrame(update);
+    analyser.getByteFrequencyData(dataArray);
+    let avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
+    document.getElementById('volNum').innerText = Math.round(avg);
 
-                startBtn.style.display = 'none';
-                statusDisp.innerHTML = "SYSTEM LIVE<br>Sunglasses Connection Enabled";
-                
-                update();
-                tempStream.getTracks().forEach(t => t.stop());
-
-            } catch (e) {
-                alert("Error: " + e.message);
-            }
-        };
-
-        function update() {
-            requestAnimationFrame(update);
-            if (!analyser) return;
-
-            analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for(let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
-            let average = sum / dataArray.length;
-            
-            volNumDisp.innerText = Math.round(average);
-
-            if (average >= THRESHOLD) {
-                // 30 이상일 때만 noise.mp3를 '방금 막 누른 것처럼' 재생 시도
-                if (maskSound.paused) {
-                    maskSound.volume = 1.0;
-                    maskSound.play().catch(()=>{}); 
-                }
-                bgMusic.volume = 0.9;
-                document.body.classList.add('alert-mode');
-                statusDisp.innerHTML = "🚨 NOISE MASKING ACTIVE";
-            } else {
-                // 30 미만일 때 아예 정지(Pause) 시켜서 자원을 비움
-                if (!maskSound.paused) {
-                    maskSound.pause();
-                    maskSound.currentTime = 0;
-                }
-                bgMusic.volume = 0.5;
-                document.body.classList.remove('alert-mode');
-                statusDisp.innerHTML = "MONITORING ENVIRONMENT<br>HI-FI MODE";
-            }
-        }
-    </script>
-</body>
-</html>
+    if (avg >= THRESHOLD) {
+        maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
+        bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
+        document.body.classList.add('alert-mode');
+    } else {
+        maskGain.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
+        bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.1);
+        document.body.classList.remove('alert-mode');
+    }
+}
