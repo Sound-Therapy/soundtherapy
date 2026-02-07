@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53</title>
+    <title>SoundTherapy v53.1</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
             font-family: -apple-system, sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.5s ease; overflow: hidden;
+            height: 100vh; transition: background 0.8s ease; overflow: hidden;
         }
         #version-tag { position: absolute; top: 15px; right: 20px; font-size: 0.8rem; color: #334155; }
         #status { font-size: 1.1rem; font-weight: 600; color: #38bdf8; text-align: center; margin-bottom: 20px; }
@@ -21,8 +21,8 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.0 (v46 Specs Restored)</div>
-    <div id="status">HI-FI SPECTRUM ANALYZER<br>Pure High-Freq Target</div>
+    <div id="version-tag">v53.1 (Smooth & Precision Tuning)</div>
+    <div id="status">ADVANCED FREQUENCY FILTERING<br>Ready for Smooth Masking</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
@@ -37,7 +37,10 @@
         let bgBuffer, maskBuffer;
         let bgSource, maskSource;
         let bgGain, maskGain;
-        const THRESHOLD = 35; // 고해상도 모드이므로 수치를 다시 35 정도로 잡았습니다.
+
+        // [튜닝 포인트 1] 드릴 감지 임계값
+        // 감시 영역을 고음으로 옮겼으므로, 드릴 소리에 따라 15~25 사이에서 조절해 보세요.
+        const THRESHOLD = 18; 
 
         async function loadAudio(url) {
             const response = await fetch(url);
@@ -48,7 +51,7 @@
         startBtn.onclick = async function() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                statusDisp.innerText = "Loading Assets...";
+                statusDisp.innerText = "Tuning Engines...";
 
                 [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
@@ -65,70 +68,3 @@
                 });
 
                 micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
-
-                analyser = audioCtx.createAnalyser();
-                // [v53 핵심] v46 성공의 일등공신인 기본 fftSize 2048 유지
-                analyser.fftSize = 2048; 
-                const micIn = audioCtx.createMediaStreamSource(stream);
-                micIn.connect(analyser);
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-                bgSource = audioCtx.createBufferSource();
-                bgSource.buffer = bgBuffer;
-                bgSource.loop = true;
-                bgGain = audioCtx.createGain();
-                bgGain.gain.value = 0.5;
-
-                maskSource = audioCtx.createBufferSource();
-                maskSource.buffer = maskBuffer;
-                maskSource.loop = true;
-                maskGain = audioCtx.createGain();
-                maskGain.gain.value = 0; 
-
-                bgSource.connect(bgGain).connect(audioCtx.destination);
-                maskSource.connect(maskGain).connect(audioCtx.destination);
-
-                bgSource.start(0);
-                maskSource.start(0);
-
-                startBtn.style.display = 'none';
-                statusDisp.innerHTML = "HI-FI MODE ACTIVE<br>Targeting Drill Frequency";
-                
-                update();
-            } catch (e) {
-                alert("Error: " + e.message);
-            }
-        };
-
-        function update() {
-            requestAnimationFrame(update);
-            if (!analyser) return;
-
-            analyser.getByteFrequencyData(dataArray);
-            
-            // [v53 드릴 스나이퍼 로직] 
-            // fftSize가 2048일 때, 인덱스 250~500은 약 5kHz ~ 10kHz 대역입니다.
-            // 치과 드릴의 '킬러 주파수' 대역만 정밀하게 합산합니다.
-            let highFreqSum = 0;
-            let count = 0;
-            for(let i = 250; i < 500; i++) { 
-                highFreqSum += dataArray[i];
-                count++;
-            }
-            let highFreqAvg = highFreqSum / count;
-            
-            volNumDisp.innerText = Math.round(highFreqAvg);
-
-            if (highFreqAvg >= THRESHOLD) {
-                maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
-                bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
-                document.body.classList.add('alert-mode');
-            } else {
-                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
-                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
-                document.body.classList.remove('alert-mode');
-            }
-        }
-    </script>
-</body>
-</html>
