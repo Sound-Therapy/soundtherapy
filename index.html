@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53.7</title>
+    <title>SoundTherapy v53</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,10 +21,10 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.7 (Original Sequence Logic)</div>
-    <div id="status">READY FOR MISSION<br>Use Your Proven Sequence</div>
+    <div id="version-tag">v53.0 (v46 Specs Restored)</div>
+    <div id="status">HI-FI SPECTRUM ANALYZER<br>Pure High-Freq Target</div>
     <div class="vol-display" id="volNum">0</div>
-    <button class="start-btn" id="startBtn">START</button>
+    <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
@@ -35,9 +35,9 @@
 
         let audioCtx, analyser, dataArray;
         let bgBuffer, maskBuffer;
-        let bgSource, maskSource, bgGain, maskGain;
-        
-        const THRESHOLD = 18; 
+        let bgSource, maskSource;
+        let bgGain, maskGain;
+        const THRESHOLD = 35; // 고해상도 모드이므로 수치를 다시 35 정도로 잡았습니다.
 
         async function loadAudio(url) {
             const response = await fetch(url);
@@ -47,28 +47,31 @@
 
         startBtn.onclick = async function() {
             try {
-                // v53.0의 번개 로딩 방식 복구
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                statusDisp.innerText = "Launching...";
+                statusDisp.innerText = "Loading Assets...";
 
-                // 모든 것을 한꺼번에 병렬로 처리하여 지연 최소화
-                const [bBuf, mBuf, stream] = await Promise.all([
+                [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
-                    loadAudio('noise.mp3'),
-                    navigator.mediaDevices.getUserMedia({
-                        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-                    })
+                    loadAudio('noise.mp3')
                 ]);
 
-                bgBuffer = bBuf;
-                maskBuffer = mBuf;
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const extMic = devices.find(d => d.kind === 'audioinput' && 
+                    (d.label.toLowerCase().includes('dock') || d.label.toLowerCase().includes('external')));
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { deviceId: extMic ? { exact: extMic.deviceId } : undefined,
+                             echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                });
+
+                micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
 
                 analyser = audioCtx.createAnalyser();
+                // [v53 핵심] v46 성공의 일등공신인 기본 fftSize 2048 유지
                 analyser.fftSize = 2048; 
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
-                
                 const micIn = audioCtx.createMediaStreamSource(stream);
                 micIn.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
 
                 bgSource = audioCtx.createBufferSource();
                 bgSource.buffer = bgBuffer;
@@ -80,7 +83,7 @@
                 maskSource.buffer = maskBuffer;
                 maskSource.loop = true;
                 maskGain = audioCtx.createGain();
-                maskGain.gain.value = 0;
+                maskGain.gain.value = 0; 
 
                 bgSource.connect(bgGain).connect(audioCtx.destination);
                 maskSource.connect(maskGain).connect(audioCtx.destination);
@@ -89,8 +92,7 @@
                 maskSource.start(0);
 
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "SYSTEM LIVE<br>Lightning Response Mode";
-                micNameDisp.innerText = "MIC: ACTIVE";
+                statusDisp.innerHTML = "HI-FI MODE ACTIVE<br>Targeting Drill Frequency";
                 
                 update();
             } catch (e) {
@@ -104,18 +106,20 @@
 
             analyser.getByteFrequencyData(dataArray);
             
-            // 말소리 무시를 위한 고주파 타겟 (v53.5 성공 수치)
-            let sum = 0;
+            // [v53 드릴 스나이퍼 로직] 
+            // fftSize가 2048일 때, 인덱스 250~500은 약 5kHz ~ 10kHz 대역입니다.
+            // 치과 드릴의 '킬러 주파수' 대역만 정밀하게 합산합니다.
+            let highFreqSum = 0;
             let count = 0;
-            for(let i = 400; i < 700; i++) { 
-                sum += dataArray[i];
+            for(let i = 250; i < 500; i++) { 
+                highFreqSum += dataArray[i];
                 count++;
             }
-            let avg = sum / count;
+            let highFreqAvg = highFreqSum / count;
             
-            volNumDisp.innerText = Math.round(avg);
+            volNumDisp.innerText = Math.round(highFreqAvg);
 
-            if (avg >= THRESHOLD) {
+            if (highFreqAvg >= THRESHOLD) {
                 maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
                 bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
                 document.body.classList.add('alert-mode');
