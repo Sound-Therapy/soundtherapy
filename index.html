@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53.1</title>
+    <title>SoundTherapy v53.2</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
             font-family: -apple-system, sans-serif; display: flex; 
             flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; transition: background 0.8s ease; overflow: hidden;
+            height: 100vh; transition: background 0.5s ease; overflow: hidden;
         }
         #version-tag { position: absolute; top: 15px; right: 20px; font-size: 0.8rem; color: #334155; }
         #status { font-size: 1.1rem; font-weight: 600; color: #38bdf8; text-align: center; margin-bottom: 20px; }
@@ -21,13 +21,14 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.1 (Smooth & Precision Tuning)</div>
-    <div id="status">ADVANCED FREQUENCY FILTERING<br>Ready for Smooth Masking</div>
+    <div id="version-tag">v53.2 (v53-Base Recovery)</div>
+    <div id="status">RECOVERED STABLE ENGINE<br>Precision Drill Targeting</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
+        // [v53.0 기반 완전 복구]
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
@@ -37,10 +38,9 @@
         let bgBuffer, maskBuffer;
         let bgSource, maskSource;
         let bgGain, maskGain;
-
-        // [튜닝 포인트 1] 드릴 감지 임계값
-        // 감시 영역을 고음으로 옮겼으므로, 드릴 소리에 따라 15~25 사이에서 조절해 보세요.
-        const THRESHOLD = 18; 
+        
+        // 고주파 타겟을 위해 임계값을 살짝 낮췄습니다. (말소리엔 반응 안 함)
+        const THRESHOLD = 20; 
 
         async function loadAudio(url) {
             const response = await fetch(url);
@@ -51,7 +51,7 @@
         startBtn.onclick = async function() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                statusDisp.innerText = "Tuning Engines...";
+                statusDisp.innerText = "Connecting...";
 
                 [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
@@ -68,3 +68,70 @@
                 });
 
                 micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048; // v53의 성공 포인트
+                const micIn = audioCtx.createMediaStreamSource(stream);
+                micIn.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                bgSource = audioCtx.createBufferSource();
+                bgSource.buffer = bgBuffer;
+                bgSource.loop = true;
+                bgGain = audioCtx.createGain();
+                bgGain.gain.value = 0.5;
+
+                maskSource = audioCtx.createBufferSource();
+                maskSource.buffer = maskBuffer;
+                maskSource.loop = true;
+                maskGain = audioCtx.createGain();
+                maskGain.gain.value = 0; 
+
+                bgSource.connect(bgGain).connect(audioCtx.destination);
+                maskSource.connect(maskGain).connect(audioCtx.destination);
+
+                bgSource.start(0);
+                maskSource.start(0);
+
+                startBtn.style.display = 'none';
+                statusDisp.innerHTML = "SYSTEM LIVE<br>Filtering Speech...";
+                
+                update();
+            } catch (e) {
+                alert("Error: " + e.message);
+            }
+        };
+
+        function update() {
+            requestAnimationFrame(update);
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            // [v53.2 튜닝] 
+            // 말소리 대역을 완전히 피하기 위해 인덱스를 300~550으로 더 높였습니다.
+            let highFreqSum = 0;
+            let count = 0;
+            for(let i = 300; i < 550; i++) { 
+                highFreqSum += dataArray[i];
+                count++;
+            }
+            let highFreqAvg = highFreqSum / count;
+            
+            volNumDisp.innerText = Math.round(highFreqAvg);
+
+            if (highFreqAvg >= THRESHOLD) {
+                // 부드러운 페이드 대신 v53의 '안정적인 반응속도'로 복귀 (0.1초)
+                maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.15);
+                bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.15);
+                document.body.classList.add('alert-mode');
+            } else {
+                // 꺼질 때만 아주 살짝 부드럽게 (0.3초)
+                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.3);
+                document.body.classList.remove('alert-mode');
+            }
+        }
+    </script>
+</body>
+</html>
