@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53.2</title>
+    <title>SoundTherapy v53.3</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,14 +21,14 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.2 (v53-Base Recovery)</div>
-    <div id="status">RECOVERED STABLE ENGINE<br>Precision Drill Targeting</div>
+    <div id="version-tag">v53.3 (v53.0 Clone)</div>
+    <div id="status">HI-FI SPECTRUM ANALYZER<br>Pure High-Freq Target</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START SYSTEM</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
-        // [v53.0 기반 완전 복구]
+        // v53.0 원본 변수 및 엔진 설정 그대로 복원
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
@@ -38,10 +38,9 @@
         let bgBuffer, maskBuffer;
         let bgSource, maskSource;
         let bgGain, maskGain;
-        
-        // 고주파 타겟을 위해 임계값을 살짝 낮췄습니다. (말소리엔 반응 안 함)
         const THRESHOLD = 20; 
 
+        // v53.0의 원본 로딩 함수 그대로 복구
         async function loadAudio(url) {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
@@ -51,8 +50,9 @@
         startBtn.onclick = async function() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                statusDisp.innerText = "Connecting...";
+                statusDisp.innerText = "Loading Assets...";
 
+                // v53.0과 동일한 로딩 순서
                 [bgBuffer, maskBuffer] = await Promise.all([
                     loadAudio('music.mp3'),
                     loadAudio('noise.mp3')
@@ -70,7 +70,7 @@
                 micNameDisp.innerText = "MIC: " + (extMic ? extMic.label.toUpperCase() : "INTERNAL");
 
                 analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 2048; // v53의 성공 포인트
+                analyser.fftSize = 2048; 
                 const micIn = audioCtx.createMediaStreamSource(stream);
                 micIn.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -94,7 +94,7 @@
                 maskSource.start(0);
 
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "SYSTEM LIVE<br>Filtering Speech...";
+                statusDisp.innerHTML = "HI-FI MODE ACTIVE<br>Targeting Drill Frequency";
                 
                 update();
             } catch (e) {
@@ -108,11 +108,11 @@
 
             analyser.getByteFrequencyData(dataArray);
             
-            // [v53.2 튜닝] 
-            // 말소리 대역을 완전히 피하기 위해 인덱스를 300~550으로 더 높였습니다.
+            // [수정 포인트: v53.0 엔진 위에서 인덱스만 변경]
+            // v53.0은 250~500이었으나, 말소리를 피하기 위해 350~600으로 상향
             let highFreqSum = 0;
             let count = 0;
-            for(let i = 300; i < 550; i++) { 
+            for(let i = 350; i < 600; i++) { 
                 highFreqSum += dataArray[i];
                 count++;
             }
@@ -121,14 +121,13 @@
             volNumDisp.innerText = Math.round(highFreqAvg);
 
             if (highFreqAvg >= THRESHOLD) {
-                // 부드러운 페이드 대신 v53의 '안정적인 반응속도'로 복귀 (0.1초)
-                maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.15);
-                bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.15);
+                // v53.0의 안정적인 0.1초 페이드
+                maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
+                bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
                 document.body.classList.add('alert-mode');
             } else {
-                // 꺼질 때만 아주 살짝 부드럽게 (0.3초)
-                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
-                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.3);
+                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
                 document.body.classList.remove('alert-mode');
             }
         }
