@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53.4</title>
+    <title>SoundTherapy v53.5</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,13 +21,14 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.4 (Pure Stable Recovery)</div>
-    <div id="status">PRESS START TO INITIALIZE<br>High-Freq Drill Target</div>
+    <div id="version-tag">v53.5 (Lightning Load + High-Freq Target)</div>
+    <div id="status">PRESS START<br>Instant Performance Mode</div>
     <div class="vol-display" id="volNum">0</div>
-    <button class="start-btn" id="startBtn">START SYSTEM</button>
+    <button class="start-btn" id="startBtn">START</button>
     <div id="mic-name">MIC: STANDBY</div>
 
     <script>
+        // v53.0의 성공적인 구조를 100% 복구
         const startBtn = document.getElementById('startBtn');
         const volNumDisp = document.getElementById('volNum');
         const statusDisp = document.getElementById('status');
@@ -36,34 +37,32 @@
         let audioCtx, analyser, dataArray;
         let bgBuffer, maskBuffer;
         let bgSource, maskSource, bgGain, maskGain;
-        const THRESHOLD = 15; // 고주파 영역이므로 15~20 사이가 적당합니다.
+        
+        // 고주파 타겟을 위한 정밀 임계값
+        const THRESHOLD = 18; 
 
-        // 가장 안전한 방식의 개별 로더
-        async function loadBuffer(url) {
-            const resp = await fetch(url);
-            const arrayBuf = await resp.arrayBuffer();
-            return await audioCtx.decodeAudioData(arrayBuf);
+        async function loadAudio(url) {
+            const response = await fetch(url);
+            const arrayBuffer = await response.arrayBuffer();
+            return await audioCtx.decodeAudioData(arrayBuffer);
         }
 
         startBtn.onclick = async function() {
             try {
-                // 1. 컨텍스트 생성
+                // v53.0과 동일한 빠른 실행 구조
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // 2. 순차적 로딩 (아이폰이 안심하도록 하나씩)
-                statusDisp.innerText = "Loading Music...";
-                bgBuffer = await loadBuffer('music.mp3');
-                
-                statusDisp.innerText = "Loading Masking...";
-                maskBuffer = await loadBuffer('noise.mp3');
+                statusDisp.innerText = "Launching...";
 
-                // 3. 마이크 권한 획득
-                statusDisp.innerText = "Accessing Mic...";
+                // [핵심] 다시 동시 로딩으로 변경 (음악이 바로 나오는 비결)
+                [bgBuffer, maskBuffer] = await Promise.all([
+                    loadAudio('music.mp3'),
+                    loadAudio('noise.mp3')
+                ]);
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                 });
 
-                // 4. 분석기 및 소스 설정 (v46 정통 수치)
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 2048; 
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -86,18 +85,16 @@
                 bgSource.connect(bgGain).connect(audioCtx.destination);
                 maskSource.connect(maskGain).connect(audioCtx.destination);
 
-                // 5. 재생 시작
                 bgSource.start(0);
                 maskSource.start(0);
 
                 startBtn.style.display = 'none';
-                statusDisp.innerHTML = "SYSTEM LIVE<br>Drill Sensor Active";
+                statusDisp.innerHTML = "SYSTEM LIVE<br>Lightning Speed Active";
                 micNameDisp.innerText = "MIC: ACTIVE";
                 
                 update();
             } catch (e) {
-                alert("Critical Error: " + e.message);
-                statusDisp.innerText = "Initialization Failed";
+                alert("Error: " + e.message);
             }
         };
 
@@ -107,11 +104,11 @@
 
             analyser.getByteFrequencyData(dataArray);
             
-            // [v53.4 튜닝] 
-            // 말소리 대역을 확실히 무시하기 위해 인덱스 400~650 (극고음 영역)만 합산
+            // [v53.5 정밀 조준]
+            // 말소리 대역을 완전히 피한 고주파 영역(400~700)
             let sum = 0;
             let count = 0;
-            for(let i = 400; i < 650; i++) { 
+            for(let i = 400; i < 700; i++) { 
                 sum += dataArray[i];
                 count++;
             }
@@ -120,14 +117,12 @@
             volNumDisp.innerText = Math.round(avg);
 
             if (avg >= THRESHOLD) {
-                // 즉각 반응형 (v46의 신뢰도 높은 방식)
                 maskGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
                 bgGain.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.1);
                 document.body.classList.add('alert-mode');
             } else {
-                // 아주 약간의 잔향만 남기는 부드러운 해제 (0.3초)
-                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
-                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.3);
+                maskGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+                bgGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.2);
                 document.body.classList.remove('alert-mode');
             }
         }
