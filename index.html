@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SoundTherapy v53.6</title>
+    <title>SoundTherapy v53.7</title>
     <style>
         body { 
             margin: 0; background: #020617; color: #f8fafc; 
@@ -21,8 +21,8 @@
 </head>
 <body>
 
-    <div id="version-tag">v53.6 (Hi-Fi Enforcement Mode)</div>
-    <div id="status">PRESS START<br>Restoring High Fidelity Audio</div>
+    <div id="version-tag">v53.7 (Original Sequence Logic)</div>
+    <div id="status">READY FOR MISSION<br>Use Your Proven Sequence</div>
     <div class="vol-display" id="volNum">0</div>
     <button class="start-btn" id="startBtn">START</button>
     <div id="mic-name">MIC: STANDBY</div>
@@ -39,8 +39,7 @@
         
         const THRESHOLD = 18; 
 
-        // 개별 로딩 함수 (안정성 위주)
-        async function loadBuffer(url) {
+        async function loadAudio(url) {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
             return await audioCtx.decodeAudioData(arrayBuffer);
@@ -48,35 +47,29 @@
 
         startBtn.onclick = async function() {
             try {
-                // [단계 1] 오디오 컨텍스트 먼저 생성
+                // v53.0의 번개 로딩 방식 복구
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                startBtn.style.display = 'none';
+                statusDisp.innerText = "Launching...";
 
-                // [단계 2] 음악 파일부터 하나씩 로드 (순차적 로딩으로 아이폰 안심시키기)
-                statusDisp.innerText = "Loading High-Fidelity Music...";
-                bgBuffer = await loadBuffer('music.mp3');
-                
-                statusDisp.innerText = "Loading Masking Noise...";
-                maskBuffer = await loadBuffer('noise.mp3');
+                // 모든 것을 한꺼번에 병렬로 처리하여 지연 최소화
+                const [bBuf, mBuf, stream] = await Promise.all([
+                    loadAudio('music.mp3'),
+                    loadAudio('noise.mp3'),
+                    navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                    })
+                ]);
 
-                // [단계 3] 마이크는 가장 마지막에, 모든 오디오 준비가 끝난 뒤에 연다
-                statusDisp.innerText = "Opening High-Precision Mic...";
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { 
-                        echoCancellation: false, 
-                        noiseSuppression: false, 
-                        autoGainControl: false 
-                    }
-                });
+                bgBuffer = bBuf;
+                maskBuffer = mBuf;
 
-                // [단계 4] 분석기 설정 (v46의 황금 규격 2048)
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 2048; 
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
                 const micIn = audioCtx.createMediaStreamSource(stream);
                 micIn.connect(analyser);
 
-                // [단계 5] Gain 설정 및 재생 시작
                 bgSource = audioCtx.createBufferSource();
                 bgSource.buffer = bgBuffer;
                 bgSource.loop = true;
@@ -95,14 +88,13 @@
                 bgSource.start(0);
                 maskSource.start(0);
 
-                statusDisp.innerHTML = "HI-FI SYSTEM ACTIVE<br>Drill Sniper Mode";
-                micNameDisp.innerText = "MIC: ACTIVE (HIGH QUALITY)";
+                startBtn.style.display = 'none';
+                statusDisp.innerHTML = "SYSTEM LIVE<br>Lightning Response Mode";
+                micNameDisp.innerText = "MIC: ACTIVE";
                 
                 update();
             } catch (e) {
-                alert("Audio Error: " + e.message);
-                statusDisp.innerText = "Restart Required";
-                startBtn.style.display = 'block';
+                alert("Error: " + e.message);
             }
         };
 
@@ -112,7 +104,7 @@
 
             analyser.getByteFrequencyData(dataArray);
             
-            // v53.5에서 검증된 고주파 정밀 타겟 범위
+            // 말소리 무시를 위한 고주파 타겟 (v53.5 성공 수치)
             let sum = 0;
             let count = 0;
             for(let i = 400; i < 700; i++) { 
