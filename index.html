@@ -4,18 +4,22 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * Version: v54.5 (Revised from v53.8)
- * 핵심: 판도라 앱은 별도로 실행 중인 상태에서 윈도우 시스템 볼륨만 제어.
+ * Version: v53.8 (GitHub Project Base)
+ * 핵심 기능:
+ * 1. 실시간 마이크 입력(RMS) 감지
+ * 2. 3초 소음 지속 시 볼륨 50 -> 75 (5초 페이드)
+ * 3. 소음 종료 시 볼륨 75 -> 50 (3초 페이드)
+ * 4. 별도 재생 프로그램(판도라 등)의 마스터 볼륨 제어
  */
 public class ClinicalAudioService implements Runnable {
 
     // --- Configuration ---
-    private static final float THRESHOLD = 0.05f; // 소음 감도 (드릴 소리에 맞춰 조절)
-    private static final int BASE_VOL = 50;       // 평상시 판도라 볼륨
-    private static final int MAX_VOL = 75;        // 드릴 소음 발생 시 볼륨
-    private static final int SUSTAIN_TIME = 3000; // 소음 지속 시간 (3초)
-    private static final int FADE_UP_MS = 5000;   // 볼륨 상승 시간 (5초)
-    private static final int FADE_DOWN_MS = 3000; // 볼륨 하강 시간 (3초)
+    private static final float THRESHOLD = 0.05f; // 소음 감도
+    private static final int BASE_VOL = 50;       // 평상시 볼륨
+    private static final int MAX_VOL = 75;        // 소음 시 볼륨
+    private static final int SUSTAIN_TIME = 3000; // 3초 지속 시간
+    private static final int FADE_UP_MS = 5000;   // 5초간 상승
+    private static final int FADE_DOWN_MS = 3000; // 3초간 하강
 
     private boolean isBoosted = false;
     private long noiseStartTime = 0;
@@ -27,11 +31,10 @@ public class ClinicalAudioService implements Runnable {
     }
 
     public void monitorNoise() {
-        // 1. 초기 볼륨 50으로 설정
+        // 초기 볼륨 세팅
         setSystemVolume(BASE_VOL);
-        System.out.println("System Initialized: Pandora Volume at 50%");
+        System.out.println("Bolton System Initialized: Monitoring for noise...");
 
-        // 2. 마이크 입력 설정 (Java Standard API)
         AudioFormat format = new AudioFormat(44100, 16, 1, true, false);
         DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
 
@@ -46,22 +49,20 @@ public class ClinicalAudioService implements Runnable {
                 if (bytesRead > 0) {
                     float currentRms = calculateRMS(buffer, bytesRead);
 
-                    // --- Logic Start ---
+                    // --- 핵심 로직 ---
                     if (currentRms > THRESHOLD) {
                         if (noiseStartTime == 0) noiseStartTime = System.currentTimeMillis();
                         
                         long elapsed = System.currentTimeMillis() - noiseStartTime;
-                        // 소음이 3초간 지속될 때
                         if (!isBoosted && elapsed >= SUSTAIN_TIME) {
-                            System.out.println("Drill Noise Detected (3s)! Increasing Volume...");
-                            fadeVolume(BASE_VOL, MAX_VOL, FADE_UP_MS); // 50 -> 75 (5초간)
+                            System.out.println("Drill noise detected for 3s. Increasing volume...");
+                            fadeVolume(BASE_VOL, MAX_VOL, FADE_UP_MS);
                             isBoosted = true;
                         }
                     } else {
-                        // 소음이 멈췄을 때
                         if (isBoosted) {
-                            System.out.println("Noise Cleared. Decreasing Volume...");
-                            fadeVolume(MAX_VOL, BASE_VOL, FADE_DOWN_MS); // 75 -> 50 (3초간)
+                            System.out.println("Noise cleared. Resetting volume...");
+                            fadeVolume(MAX_VOL, BASE_VOL, FADE_DOWN_MS);
                             isBoosted = false;
                         }
                         noiseStartTime = 0;
@@ -69,20 +70,20 @@ public class ClinicalAudioService implements Runnable {
                 }
             }
         } catch (LineUnavailableException e) {
-            System.err.println("Microphone not found: " + e.getMessage());
+            System.err.println("Microphone error: " + e.getMessage());
         }
     }
 
-    // RMS 계산 (소음 측정)
+    // RMS 계산 로직
     private float calculateRMS(byte[] audioData, int bytesRead) {
         long sum = 0;
         short[] samples = new short[bytesRead / 2];
         ByteBuffer.wrap(audioData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(samples);
-        for (short s : samples) sum += s * s;
+        for (short s : samples) sum += (long)s * s;
         return (float) (Math.sqrt(sum / (double) samples.length) / 32768.0);
     }
 
-    // 부드러운 볼륨 전환
+    // 부드러운 볼륨 전환 (Fade In/Out)
     private void fadeVolume(int start, int end, int durationMs) {
         int steps = 20; 
         int interval = durationMs / steps;
@@ -95,13 +96,13 @@ public class ClinicalAudioService implements Runnable {
         }
     }
 
-    // 윈도우 볼륨 제어 (NirCmd 사용)
+    // NirCmd를 이용한 시스템 볼륨 제어
     private void setSystemVolume(int volume) {
         try {
             int nirVal = (int) (65535.0 * volume / 100.0);
             Runtime.getRuntime().exec("nircmd.exe setsysvolume " + nirVal);
         } catch (IOException e) {
-            System.err.println("NirCmd error. Please ensure nircmd.exe is in project root.");
+            System.err.println("Check nircmd.exe location.");
         }
     }
 
