@@ -4,62 +4,64 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * Version: v54.4
- * Project: Clinical Audio Guard (Java Edition)
- * Core logic for real-time mic sensing and master volume control.
+ * Version: v54.5 (Revised from v53.8)
+ * 핵심: 판도라 앱은 별도로 실행 중인 상태에서 윈도우 시스템 볼륨만 제어.
  */
-public class AudioVolumeService implements Runnable {
+public class ClinicalAudioService implements Runnable {
 
-    private static final float THRESHOLD = 0.05f; 
-    private static final int BASE_VOL = 50;
-    private static final int MAX_VOL = 75;
-    
+    // --- Configuration ---
+    private static final float THRESHOLD = 0.05f; // 소음 감도 (드릴 소리에 맞춰 조절)
+    private static final int BASE_VOL = 50;       // 평상시 판도라 볼륨
+    private static final int MAX_VOL = 75;        // 드릴 소음 발생 시 볼륨
+    private static final int SUSTAIN_TIME = 3000; // 소음 지속 시간 (3초)
+    private static final int FADE_UP_MS = 5000;   // 볼륨 상승 시간 (5초)
+    private static final int FADE_DOWN_MS = 3000; // 볼륨 하강 시간 (3초)
+
     private boolean isBoosted = false;
     private long noiseStartTime = 0;
-    private boolean running = true;
+    private volatile boolean running = true;
 
     @Override
     public void run() {
-        startMonitoring();
+        monitorNoise();
     }
 
-    public void startMonitoring() {
-        // 1. Setup Audio Format
+    public void monitorNoise() {
+        // 1. 초기 볼륨 50으로 설정
+        setSystemVolume(BASE_VOL);
+        System.out.println("System Initialized: Pandora Volume at 50%");
+
+        // 2. 마이크 입력 설정 (Java Standard API)
         AudioFormat format = new AudioFormat(44100, 16, 1, true, false);
         DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-
-        if (!AudioSystem.isLineSupported(info)) {
-            System.err.println("Line not supported. Check microphone connection.");
-            return;
-        }
 
         try (TargetDataLine line = (TargetDataLine) AudioSystem.getLine(info)) {
             line.open(format);
             line.start();
 
-            System.out.println("Bolton Project: Monitoring started at Base Volume 50...");
-            setSystemVolume(BASE_VOL);
-
             byte[] buffer = new byte[1024];
-            
+
             while (running) {
                 int bytesRead = line.read(buffer, 0, buffer.length);
                 if (bytesRead > 0) {
                     float currentRms = calculateRMS(buffer, bytesRead);
 
+                    // --- Logic Start ---
                     if (currentRms > THRESHOLD) {
                         if (noiseStartTime == 0) noiseStartTime = System.currentTimeMillis();
                         
                         long elapsed = System.currentTimeMillis() - noiseStartTime;
-                        if (!isBoosted && elapsed >= 3000) { // 3 sec sustained noise
-                            System.out.println("Noise detected! Fading UP to 75%...");
-                            fadeVolume(BASE_VOL, MAX_VOL, 5000); // 5 sec fade
+                        // 소음이 3초간 지속될 때
+                        if (!isBoosted && elapsed >= SUSTAIN_TIME) {
+                            System.out.println("Drill Noise Detected (3s)! Increasing Volume...");
+                            fadeVolume(BASE_VOL, MAX_VOL, FADE_UP_MS); // 50 -> 75 (5초간)
                             isBoosted = true;
                         }
                     } else {
+                        // 소음이 멈췄을 때
                         if (isBoosted) {
-                            System.out.println("Noise cleared. Fading DOWN to 50%...");
-                            fadeVolume(MAX_VOL, BASE_VOL, 3000); // 3 sec fade
+                            System.out.println("Noise Cleared. Decreasing Volume...");
+                            fadeVolume(MAX_VOL, BASE_VOL, FADE_DOWN_MS); // 75 -> 50 (3초간)
                             isBoosted = false;
                         }
                         noiseStartTime = 0;
@@ -67,47 +69,41 @@ public class AudioVolumeService implements Runnable {
                 }
             }
         } catch (LineUnavailableException e) {
-            e.printStackTrace();
+            System.err.println("Microphone not found: " + e.getMessage());
         }
     }
 
+    // RMS 계산 (소음 측정)
     private float calculateRMS(byte[] audioData, int bytesRead) {
         long sum = 0;
         short[] samples = new short[bytesRead / 2];
         ByteBuffer.wrap(audioData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(samples);
-        
-        for (short sample : samples) {
-            sum += sample * sample;
-        }
-        
-        double lrms = Math.sqrt(sum / (double)samples.length);
-        return (float) (lrms / 32768.0); // Normalize to 0.0 ~ 1.0
+        for (short s : samples) sum += s * s;
+        return (float) (Math.sqrt(sum / (double) samples.length) / 32768.0);
     }
 
+    // 부드러운 볼륨 전환
     private void fadeVolume(int start, int end, int durationMs) {
-        int steps = 25; // More steps for smoother transition
+        int steps = 20; 
         int interval = durationMs / steps;
-        float stepSize = (float) (end - start) / steps;
+        float increment = (float)(end - start) / steps;
 
         for (int i = 1; i <= steps; i++) {
-            int target = (int) (start + (stepSize * i));
-            setSystemVolume(target);
+            int currentTarget = (int)(start + (increment * i));
+            setSystemVolume(currentTarget);
             try { Thread.sleep(interval); } catch (InterruptedException e) {}
         }
     }
 
+    // 윈도우 볼륨 제어 (NirCmd 사용)
     private void setSystemVolume(int volume) {
         try {
-            // NirCmd uses a scale of 0 to 65535 for setsysvolume
-            int nirVolume = (int) (65535.0 * volume / 100.0);
-            String command = "nircmd.exe setsysvolume " + nirVolume;
-            Runtime.getRuntime().exec(command);
+            int nirVal = (int) (65535.0 * volume / 100.0);
+            Runtime.getRuntime().exec("nircmd.exe setsysvolume " + nirVal);
         } catch (IOException e) {
-            System.err.println("NirCmd error: Ensure nircmd.exe is in the project path.");
+            System.err.println("NirCmd error. Please ensure nircmd.exe is in project root.");
         }
     }
 
-    public void stop() {
-        this.running = false;
-    }
+    public void stop() { this.running = false; }
 }
