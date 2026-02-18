@@ -1,82 +1,72 @@
-import pyaudio
-import numpy as np
-import time
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+import javax.sound.sampled.*;
+import java.util.concurrent.TimeUnit;
 
-# --- Configuration ---
-# Version: v54.2
-# Author: Gemini (for Dad's Clinical Project)
+/**
+ * Version: v54.3
+ * Project: Clinical Audio Guard (Java Edition)
+ * Core logic for volume fade up/down based on noise duration.
+ */
+public class AudioVolumeService {
 
-THRESHOLD = 0.05        # Noise sensitivity (Adjust this based on drill sound)
-BASE_VOLUME = 50        # Default volume (0-100)
-MAX_VOLUME = 75         # Target volume when noise detected
-NOISE_DURATION = 3      # Must stay noisy for 3 seconds
-FADE_UP_TIME = 5        # Transition to MAX_VOLUME (seconds)
-FADE_DOWN_TIME = 3      # Transition back to BASE_VOLUME (seconds)
-
-# --- Windows Volume Setup ---
-devices = AudioUtilities.GetSpeakers()
-interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-volume_control = cast(interface, POINTER(IAudioEndpointVolume))
-
-def set_master_volume(level):
-    # Level: 0 to 100
-    volume_control.SetMasterVolumeLevelScalar(level / 100.0, None)
-
-def gradual_volume_change(start, end, duration):
-    steps = 20  # Number of steps for smooth transition
-    step_sleep = duration / steps
-    increment = (end - start) / steps
+    private static final float THRESHOLD = 0.05f; // Noise sensitivity
+    private static final int BASE_VOL = 50;
+    private static final int MAX_VOL = 75;
     
-    current = start
-    for _ in range(steps):
-        current += increment
-        set_master_volume(current)
-        time.sleep(step_sleep)
+    private boolean isBoosted = false;
+    private long noiseStartTime = 0;
 
-# --- Audio Analysis Setup ---
-CHUNK = 1024
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
-RATE = 44100
+    public void startMonitoring() {
+        // Logic to capture audio from sunglasses/mic
+        // In Java, we use TargetDataLine
+        System.out.println("Bolton Project: Monitoring started at Base Volume 50...");
+        setSystemVolume(BASE_VOL);
+        
+        // Pseudo-loop for noise detection
+        while (true) {
+            float currentRms = getMicrophoneLevel(); // Real-time sensing
 
-p = pyaudio.PyAudio()
-stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
-                input=True, frames_per_buffer=CHUNK)
+            if (currentRms > THRESHOLD) {
+                if (noiseStartTime == 0) noiseStartTime = System.currentTimeMillis();
+                
+                long elapsed = System.currentTimeMillis() - noiseStartTime;
+                if (!isBoosted && elapsed >= 3000) { // 3 seconds check
+                    fadeVolume(BASE_VOL, MAX_VOL, 5000); // Fade up for 5s
+                    isBoosted = true;
+                }
+            } else {
+                if (isBoosted) {
+                    fadeVolume(MAX_VOL, BASE_VOL, 3000); // Fade down for 3s
+                    isBoosted = false;
+                }
+                noiseStartTime = 0;
+            }
+        }
+    }
 
-# --- Main Logic ---
-print("System Initialized. Starting at Volume 50...")
-set_master_volume(BASE_VOLUME)
+    private void fadeVolume(int start, int end, int durationMs) {
+        int steps = 20;
+        int interval = durationMs / steps;
+        float stepSize = (float)(end - start) / steps;
 
-noise_start_time = None
-is_boosted = False
+        for (int i = 1; i <= steps; i++) {
+            int target = (int)(start + (stepSize * i));
+            setSystemVolume(target);
+            try { Thread.sleep(interval); } catch (InterruptedException e) {}
+        }
+    }
 
-try:
-    while True:
-        data = np.frombuffer(stream.read(CHUNK), dtype=np.int16)
-        rms = np.sqrt(np.mean(data**2)) / 32768.0  # Normalize to 0.0 ~ 1.0
-
-        if rms > THRESHOLD:
-            if noise_start_time is None:
-                noise_start_time = time.time()
-            
-            # Check if noise persisted for 3 seconds
-            if not is_boosted and (time.time() - noise_start_time >= NOISE_DURATION):
-                print(f"Noise detected! Fading up to {MAX_VOLUME} over 5s...")
-                gradual_volume_change(BASE_VOLUME, MAX_VOLUME, FADE_UP_TIME)
-                is_boosted = True
-        else:
-            if is_boosted:
-                print(f"Noise cleared. Fading down to {BASE_VOLUME} over 3s...")
-                gradual_volume_change(MAX_VOLUME, BASE_VOLUME, FADE_DOWN_TIME)
-                is_boosted = False
-            noise_start_time = None
-
-except KeyboardInterrupt:
-    print("Stopping Project...")
-finally:
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+    private void setSystemVolume(int volume) {
+        // Implementation using nircmd.exe or JNA for Windows
+        try {
+            String command = "nircmd.exe setsysvolume " + (65535 * volume / 100);
+            Runtime.getRuntime().exec(command);
+        } catch (Exception e) {
+            System.err.println("Volume Control Error");
+        }
+    }
+    
+    private float getMicrophoneLevel() {
+        // Real microphone sensing logic here
+        return 0.0f; 
+    }
+}
