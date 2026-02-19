@@ -1,110 +1,111 @@
-import javax.sound.sampled.*;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Bolton Clinical Audio Guard</title>
+    <style>
+        body { 
+            margin: 0; background-color: #000; color: #00ff00; 
+            font-family: 'Courier New', Courier, monospace;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; overflow: hidden;
+            transition: background-color 0.3s;
+        }
+        #status { font-size: 2rem; margin-bottom: 20px; }
+        #meter-container { width: 300px; height: 30px; border: 2px solid #00ff00; position: relative; }
+        #meter-bar { width: 0%; height: 100%; background-color: #00ff00; transition: width 0.1s; }
+        .boosted { background-color: #440000; color: #ff0000; border-color: #ff0000; }
+        #info { margin-top: 20px; color: #888; text-align: center; }
+        button { 
+            padding: 15px 30px; font-size: 1.2rem; cursor: pointer;
+            background: #00ff00; color: #000; border: none; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
 
-/**
- * Version: v53.8 (GitHub Project Base)
- * 핵심 기능:
- * 1. 실시간 마이크 입력(RMS) 감지
- * 2. 3초 소음 지속 시 볼륨 50 -> 75 (5초 페이드)
- * 3. 소음 종료 시 볼륨 75 -> 50 (3초 페이드)
- * 4. 별도 재생 프로그램(판도라 등)의 마스터 볼륨 제어
- */
-public class ClinicalAudioService implements Runnable {
+    <div id="status">대기 중...</div>
+    
+    <div id="meter-container">
+        <div id="meter-bar"></div>
+    </div>
 
-    // --- Configuration ---
-    private static final float THRESHOLD = 0.05f; // 소음 감도
-    private static final int BASE_VOL = 50;       // 평상시 볼륨
-    private static final int MAX_VOL = 75;        // 소음 시 볼륨
-    private static final int SUSTAIN_TIME = 3000; // 3초 지속 시간
-    private static final int FADE_UP_MS = 5000;   // 5초간 상승
-    private static final int FADE_DOWN_MS = 3000; // 3초간 하강
+    <div id="info">
+        <p>1초 이상 소음 지속 시 배경색이 변하며 경고합니다.</p>
+        <button id="start-btn">엔진 시작</button>
+    </div>
 
-    private boolean isBoosted = false;
-    private long noiseStartTime = 0;
-    private volatile boolean running = true;
+    <script>
+        // 설정값
+        const THRESHOLD = 0.01; // 감도 (낮을수록 예민함)
+        const SUSTAIN_TIME = 1000; // 1초
+        
+        let isBoosted = false;
+        let noiseStartTime = 0;
 
-    @Override
-    public void run() {
-        monitorNoise();
-    }
+        const statusText = document.getElementById('status');
+        const meterBar = document.getElementById('meter-bar');
+        const startBtn = document.getElementById('start-btn');
 
-    public void monitorNoise() {
-        // 초기 볼륨 세팅
-        setSystemVolume(BASE_VOL);
-        System.out.println("Bolton System Initialized: Monitoring for noise...");
+        startBtn.onclick = async () => {
+            startBtn.style.display = 'none';
+            statusText.innerText = "모니터링 중...";
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
 
-        AudioFormat format = new AudioFormat(44100, 16, 1, true, false);
-        DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-        try (TargetDataLine line = (TargetDataLine) AudioSystem.getLine(info)) {
-            line.open(format);
-            line.start();
+                function checkNoise() {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i];
+                    }
+                    let average = sum / dataArray.length / 255; // 0 ~ 1 사이 값
 
-            byte[] buffer = new byte[1024];
+                    // 시각적 게이지 업데이트
+                    meterBar.style.width = (average * 1000) + "%";
 
-            while (running) {
-                int bytesRead = line.read(buffer, 0, buffer.length);
-                if (bytesRead > 0) {
-                    float currentRms = calculateRMS(buffer, bytesRead);
+                    if (average > THRESHOLD) {
+                        if (noiseStartTime === 0) noiseStartTime = Date.now();
+                        let duration = Date.now() - noiseStartTime;
 
-                    // --- 핵심 로직 ---
-                    if (currentRms > THRESHOLD) {
-                        if (noiseStartTime == 0) noiseStartTime = System.currentTimeMillis();
-                        
-                        long elapsed = System.currentTimeMillis() - noiseStartTime;
-                        if (!isBoosted && elapsed >= SUSTAIN_TIME) {
-                            System.out.println("Drill noise detected for 3s. Increasing volume...");
-                            fadeVolume(BASE_VOL, MAX_VOL, FADE_UP_MS);
-                            isBoosted = true;
+                        if (!isBoosted && duration >= SUSTAIN_TIME) {
+                            activateBoost();
                         }
                     } else {
                         if (isBoosted) {
-                            System.out.println("Noise cleared. Resetting volume...");
-                            fadeVolume(MAX_VOL, BASE_VOL, FADE_DOWN_MS);
-                            isBoosted = false;
+                            deactivateBoost();
                         }
                         noiseStartTime = 0;
                     }
+                    requestAnimationFrame(checkNoise);
                 }
+
+                checkNoise();
+            } catch (err) {
+                alert("마이크 권한이 필요합니다: " + err);
             }
-        } catch (LineUnavailableException e) {
-            System.err.println("Microphone error: " + e.getMessage());
+        };
+
+        function activateBoost() {
+            isBoosted = true;
+            document.body.classList.add('boosted');
+            statusText.innerText = "📢 소음 감지! (볼륨 UP 요청)";
+            // 여기서 실제 스피커로 "볼륨을 높이세요"라는 알림음을 재생할 수도 있습니다.
         }
-    }
 
-    // RMS 계산 로직
-    private float calculateRMS(byte[] audioData, int bytesRead) {
-        long sum = 0;
-        short[] samples = new short[bytesRead / 2];
-        ByteBuffer.wrap(audioData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(samples);
-        for (short s : samples) sum += (long)s * s;
-        return (float) (Math.sqrt(sum / (double) samples.length) / 32768.0);
-    }
-
-    // 부드러운 볼륨 전환 (Fade In/Out)
-    private void fadeVolume(int start, int end, int durationMs) {
-        int steps = 20; 
-        int interval = durationMs / steps;
-        float increment = (float)(end - start) / steps;
-
-        for (int i = 1; i <= steps; i++) {
-            int currentTarget = (int)(start + (increment * i));
-            setSystemVolume(currentTarget);
-            try { Thread.sleep(interval); } catch (InterruptedException e) {}
+        function deactivateBoost() {
+            isBoosted = false;
+            document.body.classList.remove('boosted');
+            statusText.innerText = "모니터링 중...";
         }
-    }
-
-    // NirCmd를 이용한 시스템 볼륨 제어
-    private void setSystemVolume(int volume) {
-        try {
-            int nirVal = (int) (65535.0 * volume / 100.0);
-            Runtime.getRuntime().exec("nircmd.exe setsysvolume " + nirVal);
-        } catch (IOException e) {
-            System.err.println("Check nircmd.exe location.");
-        }
-    }
-
-    public void stop() { this.running = false; }
-}
+    </script>
+</body>
+</html>
