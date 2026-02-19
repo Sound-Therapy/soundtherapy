@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.11</title>
+    <title>Sound Therapy System v56.12</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
@@ -25,7 +25,7 @@
     <input type="text" id="youtube-url" placeholder="Paste YouTube link here...">
     <button id="load-btn" onclick="handleLoad()">LOAD VIDEO</button>
     
-    <div id="status">System Ready - High Sensitivity Mode</div>
+    <div id="status">Dual-Timer Active (3s UP / 2s DOWN)</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
     <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
@@ -36,16 +36,18 @@
 </div>
 
 <script>
-    // --- Configuration (v56.11) ---
-    const THRESHOLD = 0.002;     // FAR MORE SENSITIVE (Reduced from 0.01)
-    const SUSTAIN_TIME = 3000;   // 3 Seconds
+    // --- Configuration (v56.12) ---
+    const THRESHOLD = 0.002;     // High Sensitivity
+    const UP_SUSTAIN = 3000;     // Noise must last 3s to go UP
+    const DOWN_SUSTAIN = 2000;   // Silence must last 2s to go DOWN
     const BASE_VOL = 20;         
     const MAX_VOL = 80;          
-    const FADE_INTERVAL_MS = 30; // Fast Transition (Approx 1.8s)
+    const FADE_INTERVAL_MS = 30; 
 
     let player = null;
     let isBoosted = false;
     let noiseStartTime = 0;
+    let silenceStartTime = 0;
     let currentVolume = BASE_VOL;
     let fadeInterval = null;
 
@@ -62,20 +64,12 @@
     function handleLoad() {
         const url = document.getElementById('youtube-url').value;
         const videoId = extractVideoId(url);
-        if (!videoId) { alert("Please check the link."); return; }
-
-        document.getElementById('status').innerText = "Loading Audio Source...";
+        if (!videoId) { alert("Invalid link."); return; }
         if (player) { try { player.destroy(); } catch(e) {} }
         document.getElementById('video-container').innerHTML = '<div id="player"></div>';
-
         player = new YT.Player('player', {
             height: '360', width: '640', videoId: videoId,
-            events: {
-                'onReady': () => {
-                    document.getElementById('start-engine').style.display = 'inline-block';
-                    document.getElementById('status').innerText = "Load Success. Click Activate.";
-                }
-            }
+            events: { 'onReady': () => { document.getElementById('start-engine').style.display = 'inline-block'; }}
         });
     }
 
@@ -110,32 +104,34 @@
             function monitorLoop() {
                 anal.getByteFrequencyData(data);
                 let avg = data.reduce((a,b) => a+b) / data.length / 255;
-                
-                // Visual meter scaling - more reactive to small sounds
                 document.getElementById('bar').style.width = Math.min(100, avg * 2000) + "%";
 
                 if (avg > THRESHOLD) {
+                    // --- NOISE DETECTED ---
+                    silenceStartTime = 0; // Reset silence timer
                     if (noiseStartTime === 0) noiseStartTime = Date.now();
-                    if (!isBoosted && (Date.now() - noiseStartTime >= SUSTAIN_TIME)) {
+                    
+                    if (!isBoosted && (Date.now() - noiseStartTime >= UP_SUSTAIN)) {
                         isBoosted = true;
                         smoothFade(MAX_VOL);
                         document.getElementById('monitor').classList.add('alert');
                         document.getElementById('status').innerText = "📢 NOISE DETECTED";
                     }
                 } else {
+                    // --- SILENCE DETECTED ---
+                    noiseStartTime = 0; // Reset noise timer
                     if (isBoosted) {
-                        isBoosted = false;
-                        smoothFade(BASE_VOL);
-                        document.getElementById('monitor').classList.remove('alert');
-                        document.getElementById('status').innerText = "MONITORING...";
+                        if (silenceStartTime === 0) silenceStartTime = Date.now();
+                        
+                        if (Date.now() - silenceStartTime >= DOWN_SUSTAIN) {
+                            isBoosted = false;
+                            smoothFade(BASE_VOL);
+                            document.getElementById('monitor').classList.remove('alert');
+                            document.getElementById('status').innerText = "MONITORING...";
+                        }
                     }
-                    noiseStartTime = 0;
                 }
                 requestAnimationFrame(monitorLoop);
             }
             monitorLoop();
-        } catch (err) { alert("Mic access required."); }
-    }
-</script>
-</body>
-</html>
+        } catch (
