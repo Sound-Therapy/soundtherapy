@@ -2,41 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.18</title>
+    <title>Sound Therapy System v56.21</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; }
-        #video-area { margin-top: 20px; }
-        .alert { background-color: #900 !important; color: #fff !important; }
+        .alert { background-color: #700 !important; }
         #status { font-size: 1.2rem; margin: 15px; color: #ff0; }
         #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; }
-        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; overflow: hidden; background: #222; }
+        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; background: #222; }
         #bar { width: 0%; height: 100%; background: #0f0; }
         input { padding: 10px; width: 60%; background: #000; color: #0f0; border: 1px solid #0f0; margin-bottom: 10px; }
         button { padding: 15px 30px; background: #0f0; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; }
         #start-btn { display: none; background: #ff0; color: #000; margin-top: 10px; }
+        #video-area { margin-top: 20px; opacity: 0.1; pointer-events: none; }
     </style>
 </head>
 <body>
 
 <div id="monitor">
-    <h2>SOUND THERAPY SYSTEM v56.18</h2>
-    <input type="text" id="url" placeholder="유튜브 주소를 붙여넣으세요">
+    <h2>SOUND THERAPY Hi-Fi v56.21</h2>
+    <input type="text" id="url" placeholder="유튜브 주소 입력">
     <br>
-    <button onclick="loadVideo()">1. 영상 불러오기 (LOAD)</button>
-    <div id="status">대기 중...</div>
+    <button onclick="loadVideo()">1. LOAD</button>
+    <div id="status">판도라 급 음질 최적화 버전</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
-    <button id="start-btn" onclick="startSystem()">2. 시스템 시작 (ACTIVATE)</button>
+    <button id="start-btn" onclick="startSystem()">2. ACTIVATE</button>
 </div>
 
 <div id="video-area"><div id="player"></div></div>
 
 <script>
-    // --- 설정값 (5초 소음 / 2초 침묵) ---
+    // --- Config (5s Up / 2s Down) ---
     const THRESHOLD = 0.005;
-    const UP_TIME = 5000;     // 5초
-    const DOWN_TIME = 2000;   // 2초
+    const UP_TIME = 5000;
+    const DOWN_TIME = 2000;
     let currentVol = 20;
     let isUp = false;
     let noiseStart = 0;
@@ -44,7 +44,6 @@
     let player = null;
     let fadeTimer = null;
 
-    // 유튜브 API 로드
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
@@ -52,17 +51,11 @@
     function loadVideo() {
         const val = document.getElementById('url').value;
         const id = val.split('v=')[1]?.split('&')[0] || val.split('/').pop();
-        
         if (player) player.destroy();
-        
         player = new YT.Player('player', {
             height: '360', width: '640', videoId: id,
-            events: {
-                'onReady': () => {
-                    document.getElementById('start-btn').style.display = 'inline-block';
-                    document.getElementById('status').innerText = "영상이 준비되었습니다!";
-                }
-            }
+            playerVars: { 'autoplay': 0, 'controls': 1, 'vq': 'hd1080' },
+            events: { 'onReady': () => { document.getElementById('start-btn').style.display = 'inline-block'; } }
         });
     }
 
@@ -72,9 +65,10 @@
             if (currentVol < target) currentVol++;
             else if (currentVol > target) currentVol--;
             else clearInterval(fadeTimer);
-            
-            player.setVolume(currentVol);
-            document.getElementById('vol-tag').innerText = "VOL: " + currentVol + "%";
+            if (player && player.setVolume) {
+                player.setVolume(currentVol);
+                document.getElementById('vol-tag').innerText = "VOL: " + currentVol + "%";
+            }
         }, 30);
     }
 
@@ -83,42 +77,44 @@
         player.setVolume(20);
         document.getElementById('start-btn').style.display = 'none';
         
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const ctx = new AudioContext();
-        const anal = ctx.createAnalyser();
-        ctx.createMediaStreamSource(stream).connect(anal);
-        const data = new Uint8Array(anal.frequencyBinCount);
+        try {
+            // 핵심: 마이크 입력에서 음질을 깎는 모든 '필터' 제거
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    channelCount: 1 // 마이크는 단일 채널로만 사용 (스피커 스테레오 유지)
+                } 
+            });
 
-        function loop() {
-            anal.getByteFrequencyData(data);
-            let avg = data.reduce((a,b) => a+b) / data.length / 255;
-            document.getElementById('bar').style.width = (avg * 1000) + "%";
+            // 오디오 컨텍스트를 생성할 때 고음질 샘플 레이트 유지
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const anal = ctx.createAnalyser();
+            const source = ctx.createMediaStreamSource(stream);
+            source.connect(anal);
+            // 중요: 소스(마이크)를 스피커(Destination)에 연결하지 않음! (하울링 및 음질 저하 방지)
+            
+            const data = new Uint8Array(anal.frequencyBinCount);
 
-            if (avg > THRESHOLD) { // 소음 발생
-                silenceStart = 0;
-                if (noiseStart === 0) noiseStart = Date.now();
-                if (!isUp && (Date.now() - noiseStart > UP_TIME)) {
-                    isUp = true;
-                    changeVolume(80);
-                    document.getElementById('monitor').className = 'alert';
-                    document.getElementById('status').innerText = "소음 감지: 볼륨 상승";
-                }
-            } else { // 조용함
-                noiseStart = 0;
-                if (isUp) {
-                    if (silenceStart === 0) silenceStart = Date.now();
-                    if (Date.now() - silenceStart > DOWN_TIME) {
-                        isUp = false;
-                        changeVolume(20);
-                        document.getElementById('monitor').className = '';
-                        document.getElementById('status').innerText = "정적: 볼륨 하강";
+            function loop() {
+                anal.getByteFrequencyData(data);
+                let avg = data.reduce((a,b) => a+b) / data.length / 255;
+                document.getElementById('bar').style.width = Math.min(100, avg * 1500) + "%";
+
+                if (avg > THRESHOLD) {
+                    silenceStart = 0;
+                    if (noiseStart === 0) noiseStart = Date.now();
+                    if (!isUp && (Date.now() - noiseStart > UP_TIME)) {
+                        isUp = true;
+                        changeVolume(80);
+                        document.getElementById('monitor').classList.add('alert');
                     }
-                }
-            }
-            requestAnimationFrame(loop);
-        }
-        loop();
-    }
-</script>
-</body>
-</html>
+                } else {
+                    noiseStart = 0;
+                    if (isUp) {
+                        if (silenceStart === 0) silenceStart = Date.now();
+                        if (Date.now() - silenceStart > DOWN_TIME) {
+                            isUp = false;
+                            changeVolume(20);
+                            document.getElementById('monitor').classList.remove('alert
