@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.25</title>
+    <title>Sound Therapy System v56.26</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
@@ -12,8 +12,8 @@
         #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; text-shadow: 0 0 20px #0f0; }
         #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
         #bar { width: 0%; height: 100%; background: #0f0; }
-        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; }
-        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; font-size: 1rem; }
+        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; color: #000; }
         #start-engine { display:none; background: #ff0; color: #000; padding: 20px 50px; font-size: 1.5rem; box-shadow: 0 0 25px #ff0; margin-top: 10px; border: none; border-radius: 10px; cursor: pointer; }
     </style>
 </head>
@@ -24,7 +24,7 @@
     <input type="text" id="youtube-url" placeholder="Paste YouTube link and click LOAD...">
     <button id="load-btn" onclick="handleLoad()">LOAD</button>
     
-    <div id="status">System Standby - 5s Logic</div>
+    <div id="status">System Standby - 5s Delay Mode</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
     <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
@@ -33,10 +33,9 @@
 <div id="video-container"><div id="player"></div></div>
 
 <script>
-    // --- Configuration (v56.25) ---
-    // v56.13의 검증된 설정값 유지
+    // --- Configuration (Exactly v56.13 logic) ---
     const THRESHOLD = 0.002;     
-    const UP_SUSTAIN = 5000;     // 아버님이 요청하신 5초 (v56.13은 3000이었음)
+    const UP_SUSTAIN = 5000;     // 3000에서 5000으로만 딱 바꿨습니다.
     const DOWN_SUSTAIN = 2000;   
     const BASE_VOL = 20;         
     const MAX_VOL = 80;          
@@ -49,7 +48,6 @@
     let currentVolume = BASE_VOL;
     let fadeInterval = null;
 
-    // v56.13에서 사용한 가장 안정적인 API 로드 방식
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
@@ -93,7 +91,6 @@
     }
 
     async function activateSystem() {
-        if (!player) return;
         player.playVideo();
         player.setVolume(BASE_VOL);
         currentVolume = BASE_VOL;
@@ -101,3 +98,43 @@
         document.getElementById('start-engine').style.display = 'none';
         
         try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new AudioContext();
+            const anal = ctx.createAnalyser();
+            ctx.createMediaStreamSource(stream).connect(anal);
+            const data = new Uint8Array(anal.frequencyBinCount);
+
+            function monitorLoop() {
+                anal.getByteFrequencyData(data);
+                let avg = data.reduce((a,b) => a+b) / data.length / 255;
+                document.getElementById('bar').style.width = Math.min(100, avg * 2000) + "%";
+
+                if (avg > THRESHOLD) {
+                    silenceStartTime = 0;
+                    if (noiseStartTime === 0) noiseStartTime = Date.now();
+                    if (!isBoosted && (Date.now() - noiseStartTime >= UP_SUSTAIN)) {
+                        isBoosted = true;
+                        smoothFade(MAX_VOL);
+                        document.getElementById('monitor').className = 'alert';
+                        document.getElementById('status').innerText = "📢 NOISE DETECTED";
+                    }
+                } else {
+                    noiseStartTime = 0;
+                    if (isBoosted) {
+                        if (silenceStartTime === 0) silenceStartTime = Date.now();
+                        if (Date.now() - silenceStartTime >= DOWN_SUSTAIN) {
+                            isBoosted = false;
+                            smoothFade(BASE_VOL);
+                            document.getElementById('monitor').className = '';
+                            document.getElementById('status').innerText = "MONITORING...";
+                        }
+                    }
+                }
+                requestAnimationFrame(monitorLoop);
+            }
+            monitorLoop();
+        } catch (err) { alert("Mic required."); }
+    }
+</script>
+</body>
+</html>
