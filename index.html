@@ -1,33 +1,35 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bolton YouTube Audio Guard v56.02</title>
+    <title>Sound Therapy System v56.03</title>
     <style>
-        body { margin: 0; background: #000; color: #0f0; font-family: sans-serif; text-align: center; }
-        #monitor { padding: 20px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.5s; }
+        body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; }
+        #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.8s; }
         #video-container { margin-top: 20px; }
-        .alert { background-color: #500 !important; color: #f00 !important; }
-        #status { font-size: 1.2rem; font-weight: bold; margin: 10px; }
-        #vol-tag { font-size: 2rem; color: #ff0; }
-        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; overflow: hidden; background: #222; }
-        #bar { width: 0%; height: 100%; background: #0f0; }
-        input { padding: 10px; width: 60%; border-radius: 5px; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; }
-        button { padding: 10px 20px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; }
+        .alert { background-color: #441100 !important; color: #ff4444 !important; }
+        #status { font-size: 1.1rem; margin: 15px; letter-spacing: 1px; }
+        #vol-tag { font-size: 2.5rem; color: #ff0; font-weight: bold; }
+        #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
+        #bar { width: 0%; height: 100%; background: #0f0; transition: width 0.1s; }
+        input { padding: 12px; width: 50%; border-radius: 5px; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; }
+        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; margin-left: 10px; }
         button:hover { background: #0c0; }
+        .sub-text { font-size: 0.8rem; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
 
 <div id="monitor">
-    <h2>BOLTON YOUTUBE SYSTEM <span style="font-size: 0.8rem; color: #666;">v56.02</span></h2>
-    <input type="text" id="youtube-url" placeholder="유튜브 주소를 붙여넣으세요">
-    <button id="load-btn">음악 로드</button>
+    <h2 style="letter-spacing: 3px;">SOUND THERAPY SYSTEM</h2>
+    <input type="text" id="youtube-url" placeholder="Paste YouTube URL here...">
+    <button id="load-btn">LOAD</button>
     
-    <div id="status">준비 완료</div>
-    <div id="vol-tag">VOL: 50%</div>
+    <div id="status">System Ready</div>
+    <div id="vol-tag">VOL: 45%</div>
     <div id="meter"><div id="bar"></div></div>
-    <button id="start-engine" style="display:none; background: #ff0; color: #000;">엔진 가동 시작</button>
+    <button id="start-engine" style="display:none; background: #ff0; color: #000;">START MONITORING</button>
+    <div class="sub-text">Version 56.03 | Soft Transition Enabled</div>
 </div>
 
 <div id="video-container">
@@ -35,15 +37,18 @@
 </div>
 
 <script>
-    // --- 설정값 (이 부분을 수정했습니다) ---
-    const THRESHOLD = 0.01;      // 임계값: 0.0005에서 0.01로 대폭 상향 (덜 민감하게)
-    const SUSTAIN_TIME = 3000;   // 3초 지속
-    const BASE_VOL = 45;         // 평상시 볼륨
-    const MAX_VOL = 80;          // 소음 시 볼륨
+    // --- Configuration ---
+    const THRESHOLD = 0.01;      
+    const SUSTAIN_TIME = 3000;   
+    const BASE_VOL = 45;         
+    const MAX_VOL = 80;          
+    const FADE_SPEED = 50; // The lower the number, the smoother the fade (ms)
 
     let player;
     let isBoosted = false;
     let noiseStartTime = 0;
+    let currentVolume = BASE_VOL;
+    let fadeInterval;
 
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
@@ -60,7 +65,7 @@
                     playerVars: { 'autoplay': 1, 'controls': 1 },
                     events: { 'onReady': () => {
                         document.getElementById('start-engine').style.display = 'inline-block';
-                        document.getElementById('status').innerText = "엔진을 켜시면 자동 볼륨 조절이 시작됩니다.";
+                        document.getElementById('status').innerText = "Press Start to Begin Clinical Guard";
                     }}
                 });
             }
@@ -78,9 +83,25 @@
     const bar = document.getElementById('bar');
     const monitor = document.getElementById('monitor');
 
+    // Soft Volume Change Function
+    function fadeVolume(target) {
+        clearInterval(fadeInterval);
+        fadeInterval = setInterval(() => {
+            if (currentVolume < target) {
+                currentVolume++;
+            } else if (currentVolume > target) {
+                currentVolume--;
+            } else {
+                clearInterval(fadeInterval);
+            }
+            player.setVolume(currentVolume);
+            volTag.innerText = "VOL: " + currentVolume + "%";
+        }, FADE_SPEED);
+    }
+
     document.getElementById('start-engine').onclick = async () => {
         document.getElementById('start-engine').style.display = 'none';
-        statusText.innerText = "모니터링 중... (3초 소음 지속 시 볼륨 업)";
+        statusText.innerText = "Monitoring... (Sustains for 3s)";
         player.setVolume(BASE_VOL);
 
         try {
@@ -93,28 +114,24 @@
             function monitorLoop() {
                 anal.getByteFrequencyData(data);
                 let avg = data.reduce((a,b) => a+b) / data.length / 255;
-                
-                // 시각적 게이지 (보기 편하게 배율 조정)
-                bar.style.width = Math.min(100, avg * 500) + "%";
+                bar.style.width = Math.min(100, avg * 700) + "%";
 
                 if (avg > THRESHOLD) {
                     if (noiseStartTime === 0) noiseStartTime = Date.now();
                     let duration = Date.now() - noiseStartTime;
 
                     if (!isBoosted && duration >= SUSTAIN_TIME) {
-                        player.setVolume(MAX_VOL);
+                        fadeVolume(MAX_VOL); // Smooth Up
                         isBoosted = true;
-                        volTag.innerText = "VOL: " + MAX_VOL + "%";
                         monitor.classList.add('alert');
-                        statusText.innerText = "📢 소음 지속 감지: 볼륨 증가됨";
+                        statusText.innerText = "📢 NOISE DETECTED: Boosting Volume";
                     }
                 } else {
                     if (isBoosted) {
-                        player.setVolume(BASE_VOL);
+                        fadeVolume(BASE_VOL); // Smooth Down
                         isBoosted = false;
-                        volTag.innerText = "VOL: " + BASE_VOL + "%";
                         monitor.classList.remove('alert');
-                        statusText.innerText = "모니터링 중...";
+                        statusText.innerText = "Monitoring...";
                     }
                     noiseStartTime = 0;
                 }
@@ -122,9 +139,6 @@
             }
             monitorLoop();
         } catch (err) {
-            alert("마이크를 허용해주셔야 작동합니다!");
+            alert("Microphone Access Required!");
         }
     };
-</script>
-</body>
-</html>
