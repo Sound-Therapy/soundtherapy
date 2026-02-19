@@ -1,11 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sound Therapy System v56.15</title>
+    <style>
+        body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
+        #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
+        #video-container { margin-top: 20px; min-height: 360px; background: #000; display: flex; justify-content: center; }
+        .alert { background-color: #770000 !important; color: #ffffff !important; }
+        #status { font-size: 1.1rem; margin: 15px; color: #ff0; text-transform: uppercase; letter-spacing: 2px; }
+        #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; text-shadow: 0 0 20px #0f0; }
+        #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
+        #bar { width: 0%; height: 100%; background: #0f0; }
+        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; }
+        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        #start-engine { display:none; background: #ff0; color: #000; padding: 20px 50px; font-size: 1.5rem; box-shadow: 0 0 25px #ff0; margin-top: 10px; border: none; border-radius: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="monitor">
+    <h2 style="letter-spacing: 5px; margin-top: 0;">SOUND THERAPY SYSTEM</h2>
+    <input type="text" id="youtube-url" placeholder="Paste YouTube link and click LOAD...">
+    <button id="load-btn" onclick="handleLoad()">LOAD</button>
+    
+    <div id="status">4s Noise / 2s Silence Logic</div>
+    <div id="vol-tag">VOL: --%</div>
+    <div id="meter"><div id="bar"></div></div>
+    <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
+</div>
+
+<div id="video-container"><div id="player"></div></div>
+
 <script>
-    // --- Optimized Configuration (v56.14) ---
-    const THRESHOLD = 0.005;     // Slightly less sensitive to handle speech
-    const UP_SUSTAIN = 5000;     // Now 5 seconds (Prevents triggering during short talk)
-    const DOWN_SUSTAIN = 2000;   // 2 seconds of silence to fade down
+    // --- Configuration (v56.15) ---
+    const THRESHOLD = 0.005;     // Balanced sensitivity
+    const UP_SUSTAIN = 4000;     // Noise must last 4 seconds to go UP
+    const DOWN_SUSTAIN = 2000;   // Silence must last 2 seconds to go DOWN
     const BASE_VOL = 20;         
     const MAX_VOL = 80;          
     const FADE_INTERVAL_MS = 30; 
 
-    // ... rest of the logic remains the same ...
-</script>
+    let player = null;
+    let isBoosted = false;
+    let noiseStartTime = 0;
+    let silenceStartTime = 0;
+    let currentVolume = BASE_VOL;
+    let fadeInterval = null;
+
+    const tag = document.createElement('script
