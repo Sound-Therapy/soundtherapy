@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.16</title>
+    <title>Sound Therapy System v56.17</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
-        #video-container { margin-top: 20px; min-height: 360px; background: #000; display: flex; justify-content: center; }
-        .alert { background-color: #880000 !important; color: #ffffff !important; }
+        #video-area { margin-top: 20px; min-height: 360px; background: #000; display: flex; justify-content: center; }
+        .alert { background-color: #990000 !important; color: #ffffff !important; }
         #status { font-size: 1.1rem; margin: 15px; color: #ff0; text-transform: uppercase; letter-spacing: 2px; }
         #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; text-shadow: 0 0 20px #0f0; }
         #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
@@ -21,25 +21,26 @@
 
 <div id="monitor">
     <h2 style="letter-spacing: 5px; margin-top: 0;">SOUND THERAPY SYSTEM</h2>
-    <input type="text" id="youtube-url" placeholder="Paste YouTube link...">
-    <button id="load-btn" onclick="handleLoad()">LOAD</button>
+    <input type="text" id="youtube-url" placeholder="Paste link here...">
+    <button id="load-btn" onclick="initPlayer()">LOAD VIDEO</button>
     
-    <div id="status">Wait for 5s of noise</div>
+    <div id="status">System Standby</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
     <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
 </div>
 
-<div id="video-container"><div id="player"></div></div>
+<div id="video-area"><div id="player"></div></div>
 
 <script>
-    // --- Optimized Configuration (v56.16) ---
+    // --- Configuration (v56.17) ---
     const THRESHOLD = 0.005;     
-    const UP_SUSTAIN = 5000;     // Noise must last 5 SECONDS
-    const DOWN_SUSTAIN = 2000;   // Silence must last 2 SECONDS
+    const UP_SUSTAIN = 5000;     // 5 Seconds
+    const DOWN_SUSTAIN = 2000;   // 2 Seconds
     const BASE_VOL = 20;         
     const MAX_VOL = 80;          
     const FADE_INTERVAL_MS = 30; 
 
     let player = null;
     let isBoosted = false;
+    let noiseStartTime
