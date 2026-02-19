@@ -2,31 +2,32 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>Bolton YouTube Audio Guard</title>
+    <title>Bolton YouTube Audio Guard v56.02</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: sans-serif; text-align: center; }
-        #monitor { padding: 20px; border-bottom: 2px solid #0f0; background: #111; }
+        #monitor { padding: 20px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.5s; }
         #video-container { margin-top: 20px; }
         .alert { background-color: #500 !important; color: #f00 !important; }
         #status { font-size: 1.2rem; font-weight: bold; margin: 10px; }
         #vol-tag { font-size: 2rem; color: #ff0; }
-        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; overflow: hidden; }
+        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; overflow: hidden; background: #222; }
         #bar { width: 0%; height: 100%; background: #0f0; }
-        input { padding: 10px; width: 60%; border-radius: 5px; border: 1px solid #0f0; background: #000; color: #0f0; }
-        button { padding: 10px 20px; background: #0f0; border: none; cursor: pointer; font-weight: bold; }
+        input { padding: 10px; width: 60%; border-radius: 5px; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; }
+        button { padding: 10px 20px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; }
+        button:hover { background: #0c0; }
     </style>
 </head>
 <body>
 
 <div id="monitor">
-    <h2>BOLTON YOUTUBE SYSTEM</h2>
-    <input type="text" id="youtube-url" placeholder="유튜브 주소를 복사해서 붙여넣으세요 (예: https://www.youtube.com/watch?v=...)">
+    <h2>BOLTON YOUTUBE SYSTEM <span style="font-size: 0.8rem; color: #666;">v56.02</span></h2>
+    <input type="text" id="youtube-url" placeholder="유튜브 주소를 붙여넣으세요">
     <button id="load-btn">음악 로드</button>
     
-    <div id="status">유튜브 주소를 넣고 시작하세요</div>
+    <div id="status">준비 완료</div>
     <div id="vol-tag">VOL: 50%</div>
     <div id="meter"><div id="bar"></div></div>
-    <button id="start-engine" style="display:none; background: #ff0;">엔진 가동 시작</button>
+    <button id="start-engine" style="display:none; background: #ff0; color: #000;">엔진 가동 시작</button>
 </div>
 
 <div id="video-container">
@@ -34,22 +35,20 @@
 </div>
 
 <script>
-    // --- 설정값 ---
-    const THRESHOLD = 0.0005;   // 초민감
-    const SUSTAIN_TIME = 3000;  // 3초 지속 (1000으로 바꾸면 1초가 됩니다)
-    const BASE_VOL = 40;        // 평상시 볼륨 (0~100)
-    const MAX_VOL = 80;         // 소음 시 볼륨 (0~100)
+    // --- 설정값 (이 부분을 수정했습니다) ---
+    const THRESHOLD = 0.01;      // 임계값: 0.0005에서 0.01로 대폭 상향 (덜 민감하게)
+    const SUSTAIN_TIME = 3000;   // 3초 지속
+    const BASE_VOL = 45;         // 평상시 볼륨
+    const MAX_VOL = 80;          // 소음 시 볼륨
 
     let player;
     let isBoosted = false;
     let noiseStartTime = 0;
 
-    // 1. 유튜브 API 로드
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
 
-    // 유튜브 플레이어 초기화
     function onYouTubeIframeAPIReady() {
         document.getElementById('load-btn').onclick = () => {
             const url = document.getElementById('youtube-url').value;
@@ -61,10 +60,10 @@
                     playerVars: { 'autoplay': 1, 'controls': 1 },
                     events: { 'onReady': () => {
                         document.getElementById('start-engine').style.display = 'inline-block';
-                        statusText.innerText = "준비 완료! 엔진을 켜세요.";
+                        document.getElementById('status').innerText = "엔진을 켜시면 자동 볼륨 조절이 시작됩니다.";
                     }}
                 });
-            } else { alert("올바른 유튜브 주소를 넣어주세요."); }
+            }
         };
     }
 
@@ -79,47 +78,52 @@
     const bar = document.getElementById('bar');
     const monitor = document.getElementById('monitor');
 
-    // 2. 엔진 시동 (마이크 감지)
     document.getElementById('start-engine').onclick = async () => {
         document.getElementById('start-engine').style.display = 'none';
-        statusText.innerText = "모니터링 중... (3초 지속 시 볼륨 업)";
+        statusText.innerText = "모니터링 중... (3초 소음 지속 시 볼륨 업)";
         player.setVolume(BASE_VOL);
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const ctx = new AudioContext();
-        const anal = ctx.createAnalyser();
-        ctx.createMediaStreamSource(stream).connect(anal);
-        const data = new Uint8Array(anal.frequencyBinCount);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new AudioContext();
+            const anal = ctx.createAnalyser();
+            ctx.createMediaStreamSource(stream).connect(anal);
+            const data = new Uint8Array(anal.frequencyBinCount);
 
-        function monitorLoop() {
-            anal.getByteFrequencyData(data);
-            let avg = data.reduce((a,b) => a+b) / data.length / 255;
-            bar.style.width = Math.min(100, avg * 1000) + "%";
+            function monitorLoop() {
+                anal.getByteFrequencyData(data);
+                let avg = data.reduce((a,b) => a+b) / data.length / 255;
+                
+                // 시각적 게이지 (보기 편하게 배율 조정)
+                bar.style.width = Math.min(100, avg * 500) + "%";
 
-            if (avg > THRESHOLD) {
-                if (noiseStartTime === 0) noiseStartTime = Date.now();
-                let duration = Date.now() - noiseStartTime;
+                if (avg > THRESHOLD) {
+                    if (noiseStartTime === 0) noiseStartTime = Date.now();
+                    let duration = Date.now() - noiseStartTime;
 
-                if (!isBoosted && duration >= SUSTAIN_TIME) {
-                    player.setVolume(MAX_VOL); // 유튜브 볼륨 직접 조절!
-                    isBoosted = true;
-                    volTag.innerText = "VOL: " + MAX_VOL + "%";
-                    monitor.classList.add('alert');
-                    statusText.innerText = "📢 소음 감지! 볼륨 UP";
+                    if (!isBoosted && duration >= SUSTAIN_TIME) {
+                        player.setVolume(MAX_VOL);
+                        isBoosted = true;
+                        volTag.innerText = "VOL: " + MAX_VOL + "%";
+                        monitor.classList.add('alert');
+                        statusText.innerText = "📢 소음 지속 감지: 볼륨 증가됨";
+                    }
+                } else {
+                    if (isBoosted) {
+                        player.setVolume(BASE_VOL);
+                        isBoosted = false;
+                        volTag.innerText = "VOL: " + BASE_VOL + "%";
+                        monitor.classList.remove('alert');
+                        statusText.innerText = "모니터링 중...";
+                    }
+                    noiseStartTime = 0;
                 }
-            } else {
-                if (isBoosted) {
-                    player.setVolume(BASE_VOL); // 다시 다운
-                    isBoosted = false;
-                    volTag.innerText = "VOL: " + BASE_VOL + "%";
-                    monitor.classList.remove('alert');
-                    statusText.innerText = "모니터링 중...";
-                }
-                noiseStartTime = 0;
+                requestAnimationFrame(monitorLoop);
             }
-            requestAnimationFrame(monitorLoop);
+            monitorLoop();
+        } catch (err) {
+            alert("마이크를 허용해주셔야 작동합니다!");
         }
-        monitorLoop();
     };
 </script>
 </body>
