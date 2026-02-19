@@ -2,94 +2,140 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.22</title>
+    <title>Sound Therapy System v56.13</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
-        #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; }
-        .alert { background-color: #800 !important; }
-        #status { font-size: 1.2rem; margin: 15px; color: #ff0; text-transform: uppercase; }
-        #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; }
-        #meter { width: 300px; height: 10px; border: 1px solid #0f0; margin: 10px auto; background: #222; border-radius: 5px; }
+        #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
+        #video-container { margin-top: 20px; min-height: 360px; background: #000; display: flex; justify-content: center; }
+        .alert { background-color: #770000 !important; color: #ffffff !important; }
+        #status { font-size: 1.1rem; margin: 15px; color: #ff0; text-transform: uppercase; letter-spacing: 2px; }
+        #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; text-shadow: 0 0 20px #0f0; }
+        #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
         #bar { width: 0%; height: 100%; background: #0f0; }
-        input { padding: 12px; width: 55%; background: #000; color: #0f0; border: 1px solid #0f0; margin-bottom: 10px; outline: none; }
-        button { padding: 15px 30px; background: #0f0; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; color: #000; }
-        #start-btn { display: none; background: #ff0; color: #000; margin-top: 10px; box-shadow: 0 0 15px #ff0; }
+        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; }
+        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        #start-engine { display:none; background: #ff0; color: #000; padding: 20px 50px; font-size: 1.5rem; box-shadow: 0 0 25px #ff0; margin-top: 10px; border: none; border-radius: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div id="monitor">
-    <h2 style="letter-spacing: 5px;">SOUND THERAPY Hi-Fi v56.22</h2>
-    <input type="text" id="url" placeholder="Paste YouTube link here...">
-    <br>
-    <button onclick="forceLoad()">1. LOAD VIDEO</button>
-    <div id="status">Ready for Input</div>
+    <h2 style="letter-spacing: 5px; margin-top: 0;">SOUND THERAPY SYSTEM</h2>
+    <input type="text" id="youtube-url" placeholder="Paste YouTube link and click LOAD...">
+    <button id="load-btn" onclick="handleLoad()">LOAD</button>
+    
+    <div id="status">System Standby</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
-    <button id="start-btn" onclick="activateSystem()">2. ACTIVATE SYSTEM</button>
+    <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
 </div>
 
-<div id="video-area"><div id="player"></div></div>
+<div id="video-container"><div id="player"></div></div>
 
 <script>
-    // --- Config (5s Up / 2s Down) ---
-    const THRESHOLD = 0.005;
-    const UP_TIME = 5000;
-    const DOWN_TIME = 2000;
-    let currentVol = 20;
-    let isUp = false;
-    let noiseStart = 0;
-    let silenceStart = 0;
-    let player = null;
-    let fadeTimer = null;
+    // --- Configuration (v56.13) ---
+    const THRESHOLD = 0.002;     
+    const UP_SUSTAIN = 3000;     
+    const DOWN_SUSTAIN = 2000;   
+    const BASE_VOL = 20;         
+    const MAX_VOL = 80;          
+    const FADE_INTERVAL_MS = 30; 
 
-    // Load API immediately
+    let player = null;
+    let isBoosted = false;
+    let noiseStartTime = 0;
+    let silenceStartTime = 0;
+    let currentVolume = BASE_VOL;
+    let fadeInterval = null;
+
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
 
-    function extractId(url) {
+    function extractVideoId(url) {
         const match = url.match(/(?:https?:\/\/)?(?:www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]+)/);
         return (match && match[1]) ? match[1] : null;
     }
 
-    // Force Reinjection on Load
-    function forceLoad() {
-        const videoId = extractId(document.getElementById('url').value);
-        if (!videoId) { alert("Invalid YouTube URL"); return; }
-        
-        document.getElementById('status').innerText = "Forcing Connection...";
+    function handleLoad() {
+        const url = document.getElementById('youtube-url').value;
+        const videoId = extractVideoId(url);
+        if (!videoId) { alert("Invalid URL"); return; }
         
         if (player) { try { player.destroy(); } catch(e) {} }
-        document.getElementById('video-area').innerHTML = '<div id="player"></div>';
+        document.getElementById('video-container').innerHTML = '<div id="player"></div>';
         
         player = new YT.Player('player', {
             height: '360', width: '640', videoId: videoId,
-            playerVars: { 'autoplay': 0, 'controls': 1, 'vq': 'hd1080' },
-            events: {
-                'onReady': () => {
-                    document.getElementById('start-btn').style.display = 'inline-block';
-                    document.getElementById('status').innerText = "Connection Established.";
-                    player.setVolume(20);
+            events: { 
+                'onReady': () => { 
+                    document.getElementById('start-engine').style.display = 'inline-block';
+                    document.getElementById('status').innerText = "Loaded. Click Activate.";
                 }
             }
         });
     }
 
     function smoothFade(target) {
-        if (fadeTimer) clearInterval(fadeTimer);
-        fadeTimer = setInterval(() => {
-            if (currentVol < target) currentVol++;
-            else if (currentVol > target) currentVol--;
-            else clearInterval(fadeTimer);
+        if (fadeInterval) clearInterval(fadeInterval);
+        fadeInterval = setInterval(() => {
+            if (currentVolume < target) currentVolume++;
+            else if (currentVolume > target) currentVolume--;
+            else clearInterval(fadeInterval);
+            
             if (player && player.setVolume) {
-                player.setVolume(currentVol);
-                document.getElementById('vol-tag').innerText = "VOL: " + currentVol + "%";
+                player.setVolume(currentVolume);
+                document.getElementById('vol-tag').innerText = "VOL: " + currentVolume + "%";
             }
-        }, 30);
+        }, FADE_INTERVAL_MS);
     }
 
     async function activateSystem() {
+        // Force volume sync
         player.playVideo();
-        player.setVolume(20);
-        document.getElementById('start-btn').style.display = 'none';
+        player.setVolume(BASE_VOL);
+        currentVolume = BASE_VOL;
+        document.getElementById('vol-tag').innerText = "VOL: " + BASE_VOL + "%";
+        document.getElementById('start-engine').style.display = 'none';
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new AudioContext();
+            const anal = ctx.createAnalyser();
+            ctx.createMediaStreamSource(stream).connect(anal);
+            const data = new Uint8Array(anal.frequencyBinCount);
+
+            function monitorLoop() {
+                anal.getByteFrequencyData(data);
+                let avg = data.reduce((a,b) => a+b) / data.length / 255;
+                document.getElementById('bar').style.width = Math.min(100, avg * 2000) + "%";
+
+                if (avg > THRESHOLD) {
+                    silenceStartTime = 0;
+                    if (noiseStartTime === 0) noiseStartTime = Date.now();
+                    if (!isBoosted && (Date.now() - noiseStartTime >= UP_SUSTAIN)) {
+                        isBoosted = true;
+                        smoothFade(MAX_VOL);
+                        document.getElementById('monitor').className = 'alert';
+                        document.getElementById('status').innerText = "📢 NOISE DETECTED";
+                    }
+                } else {
+                    noiseStartTime = 0;
+                    if (isBoosted) {
+                        if (silenceStartTime === 0) silenceStartTime = Date.now();
+                        if (Date.now() - silenceStartTime >= DOWN_SUSTAIN) {
+                            isBoosted = false;
+                            smoothFade(BASE_VOL);
+                            document.getElementById('monitor').className = '';
+                            document.getElementById('status').innerText = "MONITORING...";
+                        }
+                    }
+                }
+                requestAnimationFrame(monitorLoop);
+            }
+            monitorLoop();
+        } catch (err) { alert("Mic required."); }
+    }
+</script>
+</body>
+</html>
