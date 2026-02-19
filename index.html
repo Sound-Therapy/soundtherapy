@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.07</title>
+    <title>Sound Therapy System v56.08</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 2.5s; }
@@ -23,9 +23,140 @@
 <div id="monitor">
     <h2 style="letter-spacing: 5px; margin-top: 0;">SOUND THERAPY SYSTEM</h2>
     <input type="text" id="youtube-url" placeholder="Paste YouTube link here...">
-    <button id="load-btn">LOAD</button>
+    <button id="load-btn">LOAD VIDEO</button>
     
-    <div id="status">System Standby</div>
+    <div id="status">Ready for Input</div>
     <div id="vol-tag">VOL: --%</div>
     <div id="meter"><div id="bar"></div></div>
-    <button id="start-engine" style="display:none; background: #ff0; color: #00
+    <button id="start-engine" style="display:none; background: #ff0; color: #000; padding: 20px 50px; font-size: 1.3rem; box-shadow: 0 0 20px #ff0; cursor: pointer; font-weight: bold; border: none; border-radius: 10px;">ACTIVATE SYSTEM</button>
+    <div class="sub-text">v56.08 | 20%-80% | Ultra-Slow | Bug Fix</div>
+</div>
+
+<div id="video-container">
+    <div id="player"></div>
+</div>
+
+<script>
+    // --- Configuration ---
+    const THRESHOLD = 0.01;      
+    const SUSTAIN_TIME = 3000;   
+    const BASE_VOL = 20;         
+    const MAX_VOL = 80;          
+    const FADE_INTERVAL_MS = 150; 
+
+    let player = null;
+    let isBoosted = false;
+    let noiseStartTime = 0;
+    let currentVolume = BASE_VOL;
+    let fadeInterval = null;
+    let apiReady = false;
+
+    // Load YouTube API
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+
+    window.onYouTubeIframeAPIReady = () => {
+        apiReady = true;
+        console.log("YouTube API Ready");
+    };
+
+    function extractVideoId(url) {
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    }
+
+    document.getElementById('load-btn').onclick = () => {
+        const url = document.getElementById('youtube-url').value;
+        const videoId = extractVideoId(url);
+        
+        if (!videoId) {
+            alert("Please check the YouTube URL.");
+            return;
+        }
+
+        document.getElementById('status').innerText = "Connecting to YouTube...";
+
+        // If player exists, destroy and recreate to ensure clean load
+        if (player) {
+            player.destroy();
+            player = null;
+        }
+
+        player = new YT.Player('player', {
+            height: '360',
+            width: '640',
+            videoId: videoId,
+            events: {
+                'onReady': (event) => {
+                    document.getElementById('start-engine').style.display = 'inline-block';
+                    document.getElementById('status').innerText = "Video Loaded. Press Activate.";
+                },
+                'onError': (e) => {
+                    alert("Player Error. Please refresh the page (F5).");
+                }
+            }
+        });
+    };
+
+    function smoothFade(target) {
+        if (fadeInterval) clearInterval(fadeInterval);
+        fadeInterval = setInterval(() => {
+            if (currentVolume < target) currentVolume += 1;
+            else if (currentVolume > target) currentVolume -= 1;
+            else clearInterval(fadeInterval);
+            
+            if (player && player.setVolume) {
+                player.setVolume(currentVolume);
+                document.getElementById('vol-tag').innerText = "VOL: " + currentVolume + "%";
+            }
+        }, FADE_INTERVAL_MS);
+    }
+
+    document.getElementById('start-engine').onclick = async () => {
+        if (!player) return;
+        
+        player.playVideo();
+        player.setVolume(BASE_VOL);
+        currentVolume = BASE_VOL;
+        document.getElementById('vol-tag').innerText = "VOL: " + BASE_VOL + "%";
+        document.getElementById('start-engine').style.display = 'none';
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new AudioContext();
+            const anal = ctx.createAnalyser();
+            ctx.createMediaStreamSource(stream).connect(anal);
+            const data = new Uint8Array(anal.frequencyBinCount);
+
+            function monitorLoop() {
+                anal.getByteFrequencyData(data);
+                let avg = data.reduce((a,b) => a+b) / data.length / 255;
+                document.getElementById('bar').style.width = Math.min(100, avg * 800) + "%";
+
+                if (avg > THRESHOLD) {
+                    if (noiseStartTime === 0) noiseStartTime = Date.now();
+                    if (!isBoosted && (Date.now() - noiseStartTime >= SUSTAIN_TIME)) {
+                        isBoosted = true;
+                        smoothFade(MAX_VOL);
+                        document.getElementById('monitor').classList.add('alert');
+                        document.getElementById('status').innerText = "📢 NOISE SUSTAINED - FADING UP";
+                    }
+                } else {
+                    if (isBoosted) {
+                        isBoosted = false;
+                        smoothFade(BASE_VOL);
+                        document.getElementById('monitor').classList.remove('alert');
+                        document.getElementById('status').innerText = "MONITORING...";
+                    }
+                    noiseStartTime = 0;
+                }
+                requestAnimationFrame(monitorLoop);
+            }
+            monitorLoop();
+        } catch (err) { alert("Mic required for System."); }
+    };
+</script>
+</body>
+</html>
