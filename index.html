@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sound Therapy System v56.23</title>
+    <title>Sound Therapy System v56.24</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Segoe UI', sans-serif; text-align: center; }
         #monitor { padding: 30px; border-bottom: 2px solid #0f0; background: #111; transition: background-color 0.4s; }
@@ -12,8 +12,12 @@
         #vol-tag { font-size: 3.5rem; color: #fff; font-weight: bold; margin: 10px; text-shadow: 0 0 20px #0f0; }
         #meter { width: 350px; height: 12px; border: 1px solid #0f0; margin: 15px auto; overflow: hidden; background: #222; border-radius: 6px; }
         #bar { width: 0%; height: 100%; background: #0f0; }
-        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; }
-        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        
+        /* 주소창과 버튼이 잘 보이도록 스타일 재설정 */
+        input { padding: 12px; width: 55%; border: 1px solid #0f0; background: #000; color: #0f0; outline: none; border-radius: 4px; font-size: 1rem; margin-bottom: 10px; }
+        button { padding: 12px 25px; background: #0f0; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; color: #000; }
+        button:hover { background: #fff; }
+        
         #start-engine { display:none; background: #ff0; color: #000; padding: 20px 50px; font-size: 1.5rem; box-shadow: 0 0 25px #ff0; margin-top: 10px; border: none; border-radius: 10px; cursor: pointer; }
     </style>
 </head>
@@ -21,4 +25,62 @@
 
 <div id="monitor">
     <h2 style="letter-spacing: 5px; margin-top: 0;">SOUND THERAPY SYSTEM</h2>
-    <input
+    
+    <input type="text" id="youtube-url" placeholder="Paste YouTube link here...">
+    <button id="load-btn" onclick="handleLoad()">LOAD VIDEO</button>
+    
+    <div id="status">Ready for Input (5s Delay)</div>
+    <div id="vol-tag">VOL: --%</div>
+    <div id="meter"><div id="bar"></div></div>
+    <button id="start-engine" onclick="activateSystem()">ACTIVATE SYSTEM</button>
+</div>
+
+<div id="video-container">
+    <div id="player"></div>
+</div>
+
+<script>
+    // --- Configuration (v56.24) ---
+    const THRESHOLD = 0.002;     
+    const UP_SUSTAIN = 5000;     // 소음 5초 유지 시 상승
+    const DOWN_SUSTAIN = 2000;   // 적막 2초 유지 시 하강
+    const BASE_VOL = 20;         
+    const MAX_VOL = 80;          
+    const FADE_INTERVAL_MS = 30; 
+
+    let player = null;
+    let isBoosted = false;
+    let noiseStartTime = 0;
+    let silenceStartTime = 0;
+    let currentVolume = BASE_VOL;
+    let fadeInterval = null;
+
+    // YouTube API 로드
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    function extractVideoId(url) {
+        const match = url.match(/(?:https?:\/\/)?(?:www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]+)/);
+        return (match && match[1]) ? match[1] : null;
+    }
+
+    function handleLoad() {
+        const url = document.getElementById('youtube-url').value;
+        const videoId = extractVideoId(url);
+        
+        if (!videoId) {
+            alert("Please paste a valid YouTube URL.");
+            return;
+        }
+
+        document.getElementById('status').innerText = "Loading Video...";
+
+        // 이전 플레이어 완전 삭제 후 재생성 (v56.13 방식)
+        if (player) {
+            try { player.destroy(); } catch(e) {}
+        }
+        document.getElementById('video-container').innerHTML = '<div id="player"></div>';
+
+        player = new YT.Player('player', {
